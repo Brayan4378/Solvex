@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "170158622353",
+    "project_id": "solvex-75281",
+    "storage_bucket": "solvex-75281.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:170158622353:android:1f068c52bf3a9578202130",
+        "android_client_info": {
+          "package_name": "com.solvex.solvex"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDhdZVRbUkESds_U9nQEV3-kUOj2SIwDaw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
