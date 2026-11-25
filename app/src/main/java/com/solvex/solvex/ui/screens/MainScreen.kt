@@ -38,15 +38,17 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.solvex.solvex.ui.theme.BackgroundColor
 import com.solvex.solvex.ui.theme.GreenPrimary
 import com.solvex.solvex.ui.theme.NavyPrimary
-import com.solvex.solvex.ui.theme.TextDark
 import com.solvex.solvex.ui.theme.TextMuted
+import com.solvex.solvex.ui.viewmodel.AnalisisViewModel
+import com.solvex.solvex.ui.viewmodel.AsistenteViewModel
 import com.solvex.solvex.ui.viewmodel.DashboardViewModel
+import com.solvex.solvex.ui.viewmodel.ExtractoViewModel
 import com.solvex.solvex.ui.viewmodel.MovimientosViewModel
+import com.solvex.solvex.ui.viewmodel.PerfilViewModel
 
-// pantalla principal con barra inferior y 4 tabs + boton central
+// Pantalla principal con navegación entre pestañas e sub-pantallas de Perfil / Ajustes / Soporte
 @Composable
 fun MainScreen(
     modifier: Modifier = Modifier,
@@ -54,21 +56,27 @@ fun MainScreen(
     userEmail: String = "",
     dashboardViewModel: DashboardViewModel,
     movimientosViewModel: MovimientosViewModel,
+    extractoViewModel: ExtractoViewModel,
+    analisisViewModel: AnalisisViewModel,
+    asistenteViewModel: AsistenteViewModel,
+    perfilViewModel: PerfilViewModel,
     onLogout: () -> Unit = {}
 ) {
-    // tab seleccionada (0=inicio, 1=movimientos, 2=analisis, 3=asistente)
+    // tab seleccionada (0=inicio, 1=movimientos, 2=extracto, 3=analisis, 4=asistente)
     var selectedTab by remember { mutableIntStateOf(0) }
+
+    // sub-pantallas de Perfil (0 = Pestaña principal, 1 = Perfil, 2 = Ajustes, 3 = Soporte)
+    var subPantalla by remember { mutableIntStateOf(0) }
 
     Scaffold(
         modifier = modifier,
         bottomBar = {
-            // barra inferior personalizada
+            // Barra inferior solo si estamos en las pestañas principales
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
             ) {
-                // fondo blanco de la barra
                 Surface(
                     shadowElevation = 12.dp,
                     color = Color.White,
@@ -84,48 +92,55 @@ fun MainScreen(
                         horizontalArrangement = Arrangement.SpaceAround,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // tab inicio
                         NavItem(
                             label = "Inicio",
-                            isSelected = selectedTab == 0,
-                            onClick = { selectedTab = 0 }
+                            isSelected = selectedTab == 0 && subPantalla == 0,
+                            onClick = {
+                                selectedTab = 0
+                                subPantalla = 0
+                            }
                         ) { color ->
                             HomeNavIcon(modifier = Modifier.size(22.dp), color = color)
                         }
 
-                        // tab movimientos
                         NavItem(
                             label = "Movimientos",
-                            isSelected = selectedTab == 1,
-                            onClick = { selectedTab = 1 }
+                            isSelected = selectedTab == 1 && subPantalla == 0,
+                            onClick = {
+                                selectedTab = 1
+                                subPantalla = 0
+                            }
                         ) { color ->
                             MovimientosNavIcon(modifier = Modifier.size(22.dp), color = color)
                         }
 
-                        // espacio vacio para el boton central
                         Spacer(modifier = Modifier.size(60.dp))
 
-                        // tab analisis
                         NavItem(
-                            label = "Analisis",
-                            isSelected = selectedTab == 2,
-                            onClick = { selectedTab = 2 }
+                            label = "Análisis",
+                            isSelected = selectedTab == 3 && subPantalla == 0,
+                            onClick = {
+                                selectedTab = 3
+                                subPantalla = 0
+                            }
                         ) { color ->
                             AnalisisNavIcon(modifier = Modifier.size(22.dp), color = color)
                         }
 
-                        // tab asistente
                         NavItem(
                             label = "Asistente",
-                            isSelected = selectedTab == 3,
-                            onClick = { selectedTab = 3 }
+                            isSelected = selectedTab == 4 && subPantalla == 0,
+                            onClick = {
+                                selectedTab = 4
+                                subPantalla = 0
+                            }
                         ) { color ->
                             AsistenteNavIcon(modifier = Modifier.size(22.dp), color = color)
                         }
                     }
                 }
 
-                // boton central flotante que sobresale de la barra
+                // Botón flotante central
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
@@ -142,22 +157,14 @@ fun MainScreen(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null
                             ) {
-                                // al presionar el boton central va a la pantalla de movimientos
-                                selectedTab = 1
+                                selectedTab = 2
+                                subPantalla = 0
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        // icono de documento con flecha arriba
                         Canvas(modifier = Modifier.size(24.dp)) {
-                            val w = size.width
-                            val h = size.height
-                            val stroke = Stroke(
-                                width = w * 0.09f,
-                                cap = StrokeCap.Round,
-                                join = StrokeJoin.Round
-                            )
-
-                            // forma del documento
+                            val w = size.width; val h = size.height
+                            val stroke = Stroke(width = w * 0.09f, cap = StrokeCap.Round, join = StrokeJoin.Round)
                             val doc = Path().apply {
                                 moveTo(w * 0.22f, h * 0.12f)
                                 lineTo(w * 0.58f, h * 0.12f)
@@ -168,7 +175,6 @@ fun MainScreen(
                             }
                             drawPath(doc, color = GreenPrimary, style = stroke)
 
-                            // flecha hacia arriba dentro del documento
                             val arrow = Path().apply {
                                 moveTo(w * 0.50f, h * 0.72f)
                                 lineTo(w * 0.50f, h * 0.42f)
@@ -188,33 +194,74 @@ fun MainScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            when (selectedTab) {
-                0 -> DashboardScreen(
-                    viewModel = dashboardViewModel,
+            if (subPantalla == 1) {
+                // Imagen 1: Perfil / Entidades Vinculadas
+                PerfilScreen(
+                    viewModel = perfilViewModel,
                     userName = userName,
                     userEmail = userEmail,
-                    onLogoutRequest = onLogout,
-                    onNavigateToMovimientos = { selectedTab = 1 }
+                    onNavigateAjustes = { subPantalla = 2 },
+                    onVincularNuevaCuenta = {
+                        selectedTab = 2
+                        subPantalla = 0
+                    },
+                    onHistorialExtractos = {
+                        selectedTab = 2
+                        subPantalla = 0
+                    },
+                    onLogoutRequest = onLogout
                 )
-                1 -> MovimientosScreen(
-                    viewModel = movimientosViewModel,
-                    userEmail = userEmail
+            } else if (subPantalla == 2) {
+                // Imagen 2: Ajustes de Entidades
+                AjustesEntidadesScreen(
+                    viewModel = perfilViewModel,
+                    onBackClick = { subPantalla = 1 },
+                    onContactarSoporte = { subPantalla = 3 },
+                    onLimitesGasto = { selectedTab = 3; subPantalla = 0 }
                 )
-                2 -> PantallaProximamente(titulo = "Analisis")
-                3 -> PantallaProximamente(titulo = "Asistente")
-                else -> DashboardScreen(
-                    viewModel = dashboardViewModel,
-                    userName = userName,
-                    userEmail = userEmail,
-                    onLogoutRequest = onLogout,
-                    onNavigateToMovimientos = { selectedTab = 1 }
+            } else if (subPantalla == 3) {
+                // Imagen 3: Contactar Soporte
+                ContactarSoporteScreen(
+                    onBackClick = { subPantalla = 2 },
+                    onChatEnVivo = {
+                        selectedTab = 4
+                        subPantalla = 0
+                    }
                 )
+            } else {
+                when (selectedTab) {
+                    0 -> DashboardScreen(
+                        viewModel = dashboardViewModel,
+                        userName = userName,
+                        userEmail = userEmail,
+                        onLogoutRequest = { subPantalla = 1 }, // Al hacer clic en avatar va a Perfil
+                        onNavigateToMovimientos = { selectedTab = 1 }
+                    )
+                    1 -> MovimientosScreen(
+                        viewModel = movimientosViewModel,
+                        userEmail = userEmail
+                    )
+                    2 -> ExtractoScreen(
+                        viewModel = extractoViewModel,
+                        userEmail = userEmail,
+                        onCerrarClick = { selectedTab = 0 },
+                        onMovimientosGuardados = { selectedTab = 1 }
+                    )
+                    3 -> AnalisisScreen(viewModel = analisisViewModel, userEmail = userEmail)
+                    4 -> AsistenteScreen(viewModel = asistenteViewModel, userName = userName, userEmail = userEmail)
+                    else -> DashboardScreen(
+                        viewModel = dashboardViewModel,
+                        userName = userName,
+                        userEmail = userEmail,
+                        onLogoutRequest = { subPantalla = 1 },
+                        onNavigateToMovimientos = { selectedTab = 1 }
+                    )
+                }
             }
         }
     }
 }
 
-// cada elemento de la barra inferior
 @Composable
 private fun NavItem(
     label: String,
@@ -244,15 +291,11 @@ private fun NavItem(
     }
 }
 
-// icono de casa para la tab inicio
 @Composable
 private fun HomeNavIcon(modifier: Modifier = Modifier, color: Color) {
     Canvas(modifier = modifier) {
-        val w = size.width
-        val h = size.height
+        val w = size.width; val h = size.height
         val stroke = Stroke(width = w * 0.09f, cap = StrokeCap.Round, join = StrokeJoin.Round)
-
-        // forma de la casa con techo y paredes
         val roof = Path().apply {
             moveTo(w * 0.15f, h * 0.48f)
             lineTo(w * 0.50f, h * 0.18f)
@@ -263,7 +306,6 @@ private fun HomeNavIcon(modifier: Modifier = Modifier, color: Color) {
         }
         drawPath(roof, color = color, style = stroke)
 
-        // puerta en el centro
         val door = Path().apply {
             moveTo(w * 0.38f, h * 0.85f)
             lineTo(w * 0.38f, h * 0.60f)
@@ -274,14 +316,10 @@ private fun HomeNavIcon(modifier: Modifier = Modifier, color: Color) {
     }
 }
 
-// icono de lista para la tab movimientos
 @Composable
 private fun MovimientosNavIcon(modifier: Modifier = Modifier, color: Color) {
     Canvas(modifier = modifier) {
-        val w = size.width
-        val h = size.height
-
-        // tres lineas con puntos a la izquierda (como una lista)
+        val w = size.width; val h = size.height
         drawLine(color, Offset(w * 0.15f, h * 0.28f), Offset(w * 0.30f, h * 0.28f), strokeWidth = w * 0.10f, cap = StrokeCap.Round)
         drawLine(color, Offset(w * 0.40f, h * 0.28f), Offset(w * 0.85f, h * 0.28f), strokeWidth = w * 0.09f, cap = StrokeCap.Round)
 
@@ -289,18 +327,14 @@ private fun MovimientosNavIcon(modifier: Modifier = Modifier, color: Color) {
         drawLine(color, Offset(w * 0.40f, h * 0.50f), Offset(w * 0.85f, h * 0.50f), strokeWidth = w * 0.09f, cap = StrokeCap.Round)
 
         drawLine(color, Offset(w * 0.15f, h * 0.72f), Offset(w * 0.30f, h * 0.72f), strokeWidth = w * 0.10f, cap = StrokeCap.Round)
-        drawLine(color, Offset(w * 0.40f, h * 0.72f), Offset(w * 0.85f, h * 0.72f), strokeWidth = w * 0.09f, cap = StrokeCap.Round)
+        drawLine(color, Offset(w * 0.40f, h * 0.50f), Offset(w * 0.85f, h * 0.72f), strokeWidth = w * 0.09f, cap = StrokeCap.Round)
     }
 }
 
-// icono de grafico circular para la tab analisis
 @Composable
 private fun AnalisisNavIcon(modifier: Modifier = Modifier, color: Color) {
     Canvas(modifier = modifier) {
-        val w = size.width
-        val h = size.height
-
-        // circulo con lineas radiales (como un pie chart)
+        val w = size.width; val h = size.height
         drawArc(
             color = color,
             startAngle = 0f,
@@ -315,15 +349,11 @@ private fun AnalisisNavIcon(modifier: Modifier = Modifier, color: Color) {
     }
 }
 
-// icono de burbuja de chat para la tab asistente
 @Composable
 private fun AsistenteNavIcon(modifier: Modifier = Modifier, color: Color) {
     Canvas(modifier = modifier) {
-        val w = size.width
-        val h = size.height
+        val w = size.width; val h = size.height
         val stroke = Stroke(width = w * 0.09f, cap = StrokeCap.Round, join = StrokeJoin.Round)
-
-        // forma de burbuja de conversacion
         val bubble = Path().apply {
             moveTo(w * 0.20f, h * 0.20f)
             lineTo(w * 0.80f, h * 0.20f)
@@ -335,30 +365,5 @@ private fun AsistenteNavIcon(modifier: Modifier = Modifier, color: Color) {
             close()
         }
         drawPath(bubble, color = color, style = stroke)
-    }
-}
-
-// pantalla temporal para las secciones que aun no estan listas
-@Composable
-private fun PantallaProximamente(titulo: String) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(BackgroundColor),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text(
-            text = titulo,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold,
-            color = TextDark
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = "Proximamente",
-            fontSize = 14.sp,
-            color = TextMuted
-        )
     }
 }

@@ -50,8 +50,6 @@ import com.solvex.solvex.ui.theme.ChartRed
 import com.solvex.solvex.ui.theme.GreenLight
 import com.solvex.solvex.ui.theme.GreenPrimary
 import com.solvex.solvex.ui.theme.NavyPrimary
-import com.solvex.solvex.ui.theme.OrangeAlert
-import com.solvex.solvex.ui.theme.OrangeLight
 import com.solvex.solvex.ui.theme.RedAlert
 import com.solvex.solvex.ui.theme.RedLight
 import com.solvex.solvex.ui.theme.TextDark
@@ -63,20 +61,17 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
 
-// formatea un numero como moneda colombiana (ejemplo: 4200000 -> $4.200.000)
 private fun formatearMonto(monto: Double): String {
     val valorAbsoluto = abs(monto)
     val formateado = "$" + String.format(Locale.US, "%,.0f", valorAbsoluto).replace(',', '.')
     return if (monto < 0) "-$formateado" else formateado
 }
 
-// formatea la fecha del timestamp para las alertas
 private fun formatearFechaCorta(timestamp: Long): String {
     val sdf = SimpleDateFormat("dd MMM", Locale.forLanguageTag("es-CO"))
     return sdf.format(Date(timestamp))
 }
 
-// pantalla principal del dashboard que observa el viewmodel
 @Composable
 fun DashboardScreen(
     modifier: Modifier = Modifier,
@@ -86,22 +81,25 @@ fun DashboardScreen(
     onLogoutRequest: () -> Unit = {},
     onNavigateToMovimientos: () -> Unit = {}
 ) {
-    // sincronizar email con el viewmodel
     LaunchedEffect(userEmail) {
         if (userEmail.isNotBlank()) {
             viewModel.actualizarEmail(userEmail)
         }
     }
 
-    // observar estados del viewmodel
     val totalGastos by viewModel.totalGastos.collectAsState()
     val totalIngresos by viewModel.totalIngresos.collectAsState()
+    val saldoInicial by viewModel.saldoInicial.collectAsState()
     val movimientos by viewModel.movimientos.collectAsState()
     val showLogoutDialog by viewModel.showLogoutDialog.collectAsState()
 
-    // calculamos el saldo real restando gastos de ingresos
-    val saldoConsolidado = totalIngresos - totalGastos
     val tieneMovimientos = movimientos.isNotEmpty()
+    // Saldo Consolidado Total = Saldo Inicial + Ingresos - Gastos (Únicamente cuando hay movimientos/datos guardados)
+    val saldoConsolidado = if (tieneMovimientos) {
+        if (saldoInicial > 0) (saldoInicial + totalIngresos - totalGastos) else (totalIngresos - totalGastos)
+    } else {
+        0.0
+    }
 
     Column(
         modifier = modifier
@@ -109,7 +107,7 @@ fun DashboardScreen(
             .background(BackgroundColor)
             .verticalScroll(rememberScrollState())
     ) {
-        // encabezado con saludo y avatar
+        // Encabezado con saludo y avatar
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -127,18 +125,17 @@ fun DashboardScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Hola, $userName \uD83D\uDC4B",
+                    text = "Hola, $userName 👋",
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextDark
                 )
-                // circulo con la inicial que al hacer click abre dialogo de cerrar sesion
                 Box(
                     modifier = Modifier
                         .size(48.dp)
                         .clip(CircleShape)
                         .background(NavyPrimary)
-                        .clickable { viewModel.mostrarDialogoLogout() },
+                        .clickable { onLogoutRequest() },
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -151,7 +148,6 @@ fun DashboardScreen(
             }
         }
 
-        // ventana emergente de confirmacion para cerrar sesion
         if (showLogoutDialog) {
             AlertDialog(
                 onDismissRequest = { viewModel.ocultarDialogoLogout() },
@@ -200,7 +196,7 @@ fun DashboardScreen(
             )
         }
 
-        // tarjeta oscura con el saldo real calculado de room
+        // Tarjeta de Saldo Consolidado Total
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -241,7 +237,6 @@ fun DashboardScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // saldo real calculado de ingresos menos gastos
                 Text(
                     text = formatearMonto(saldoConsolidado),
                     fontSize = 32.sp,
@@ -252,7 +247,7 @@ fun DashboardScreen(
                 Spacer(modifier = Modifier.height(4.dp))
 
                 Text(
-                    text = if (tieneMovimientos) "COP \u2022 Actualizado en tiempo real" else "COP \u2022 Sin movimientos registrados",
+                    text = if (tieneMovimientos) "COP • Actualizado en tiempo real" else "COP • Sin movimientos registrados",
                     fontSize = 12.sp,
                     color = Color.White.copy(alpha = 0.5f)
                 )
@@ -263,12 +258,10 @@ fun DashboardScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // seccion inferior con totales de ingresos y gastos reales
                 Row(modifier = Modifier.fillMaxWidth()) {
-                    // columna de ingresos
                     Column(modifier = Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(text = "\u2191", fontSize = 14.sp, color = GreenLight)
+                            Text(text = "↑", fontSize = 14.sp, color = GreenLight)
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = "Ingresos",
@@ -285,10 +278,9 @@ fun DashboardScreen(
                         )
                     }
 
-                    // columna de gastos
                     Column(modifier = Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(text = "\u2193", fontSize = 14.sp, color = RedAlert)
+                            Text(text = "↓", fontSize = 14.sp, color = RedAlert)
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = "Gastos",
@@ -308,7 +300,7 @@ fun DashboardScreen(
             }
         }
 
-        // tarjeta de resumen de gastos
+        // Resumen de gastos
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -324,7 +316,7 @@ fun DashboardScreen(
                     .padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(text = "\uD83D\uDCCA", fontSize = 20.sp)
+                Text(text = "📊", fontSize = 20.sp)
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -334,7 +326,7 @@ fun DashboardScreen(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = if (totalGastos > 0) "Has registrado ${formatearMonto(totalGastos)} en gastos" else "Registra gastos en Movimientos para ver tus metricas",
+                        text = if (totalGastos > 0) "Has registrado ${formatearMonto(totalGastos)} en gastos" else "Registra gastos en Movimientos para ver tus métricas",
                         fontSize = 13.sp,
                         color = TextDark
                     )
@@ -354,7 +346,7 @@ fun DashboardScreen(
             }
         }
 
-        // seccion de movimientos o alertas recientes en tiempo real
+        // Sección de últimos movimientos
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -367,7 +359,7 @@ fun DashboardScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Ultimos movimientos",
+                    text = "Últimos movimientos",
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextDark
@@ -384,7 +376,6 @@ fun DashboardScreen(
             Spacer(modifier = Modifier.height(12.dp))
 
             if (tieneMovimientos) {
-                // mostramos hasta los 2 movimientos mas recientes guardados en room
                 val recientes = movimientos.take(2)
                 recientes.forEach { item ->
                     val esGasto = item.tipo == "gasto"
@@ -410,14 +401,14 @@ fun DashboardScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = if (esGasto) "\uD83D\uDCC9" else "\uD83D\uDCC8",
+                                    text = if (esGasto) "📉" else "📈",
                                     fontSize = 16.sp
                                 )
                             }
                             Spacer(modifier = Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = item.categoria.uppercase(),
+                                    text = item.categoria.uppercase(Locale.ROOT),
                                     fontSize = 10.sp,
                                     color = if (esGasto) RedAlert else GreenPrimary,
                                     fontWeight = FontWeight.Bold,
@@ -447,7 +438,6 @@ fun DashboardScreen(
                     }
                 }
             } else {
-                // estado cuando todavia no hay movimientos guardados
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
@@ -467,7 +457,7 @@ fun DashboardScreen(
                                 .background(BorderColor.copy(alpha = 0.4f)),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(text = "\uD83D\uDD14", fontSize = 16.sp)
+                            Text(text = "🔔", fontSize = 16.sp)
                         }
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
@@ -480,7 +470,7 @@ fun DashboardScreen(
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "Tus gastos recientes apareceran aqui",
+                                text = "Tus gastos recientes aparecerán aquí",
                                 fontSize = 13.sp,
                                 color = TextDark
                             )
@@ -490,7 +480,7 @@ fun DashboardScreen(
             }
         }
 
-        // seccion de gastos por categoria con grafico circular real
+        // Sección de gastos por categoría
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -519,7 +509,6 @@ fun DashboardScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // calculo dinamico de los gastos por categoria segun room
             val listaGastos = remember(movimientos) { movimientos.filter { it.tipo == "gasto" } }
             val sumaTotalGastos = remember(listaGastos) { listaGastos.sumOf { it.monto } }
 
@@ -529,8 +518,8 @@ fun DashboardScreen(
                         .map { (cat, items) ->
                             val subtotal = items.sumOf { it.monto }
                             val porcentaje = ((subtotal / sumaTotalGastos) * 100).toFloat()
-                            val color = when (cat.lowercase()) {
-                                "comida" -> ChartGreen
+                            val color = when (cat.lowercase(Locale.ROOT)) {
+                                "comida", "comida y mercado" -> ChartGreen
                                 "transporte" -> ChartBlue
                                 "entretenimiento" -> ChartOrange
                                 "servicios" -> ChartRed
@@ -585,7 +574,6 @@ fun DashboardScreen(
                                     angulo += barrido
                                 }
                             } else {
-                                // circulo vacio si no hay gastos
                                 drawArc(
                                     color = BorderColor,
                                     startAngle = 0f,
@@ -639,7 +627,7 @@ fun DashboardScreen(
                                 fontWeight = FontWeight.Medium
                             )
                             Text(
-                                text = "Agrega gastos para ver tu distribucion",
+                                text = "Agrega gastos para ver tu distribución",
                                 fontSize = 11.sp,
                                 color = TextMuted
                             )
@@ -653,7 +641,6 @@ fun DashboardScreen(
     }
 }
 
-// elemento de leyenda para cada categoria del grafico
 @Composable
 private fun LeyendaItem(texto: String, color: Color) {
     Row(verticalAlignment = Alignment.CenterVertically) {

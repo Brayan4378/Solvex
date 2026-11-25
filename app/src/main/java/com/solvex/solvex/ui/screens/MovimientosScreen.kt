@@ -1,5 +1,6 @@
 package com.solvex.solvex.ui.screens
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -24,7 +25,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -41,12 +41,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.solvex.solvex.data.MovimientoEntity
+import com.solvex.solvex.data.entity.MovimientoEntity
 import com.solvex.solvex.ui.theme.BackgroundColor
 import com.solvex.solvex.ui.theme.BorderColor
 import com.solvex.solvex.ui.theme.GreenLight
@@ -73,28 +78,40 @@ private fun formatearFecha(timestamp: Long): String {
     return sdf.format(Date(timestamp))
 }
 
-// lista de categorias comunes para los gastos
+// lista completa de categorías detalladas para gastos e ingresos
 private val categoriasGastos = listOf(
-    "Comida",
-    "Transporte",
+    "Comida y Restaurantes",
+    "Supermercados y Mercado",
+    "Transporte y Gasolina",
     "Entretenimiento",
-    "Servicios",
-    "Salud",
-    "Compras",
+    "Compras y Comercio",
+    "Facturas y Servicios",
+    "Pago de Tarjetas",
+    "Salud y Droguerías",
+    "Bolsillos y Ahorro",
+    "Transferencias y Envíos",
+    "Ingresos y Rendimientos",
+    "Comisiones e Impuestos",
     "Otro"
 )
 
 // icono y color segun la categoria seleccionada
 private fun obtenerDetallesCategoria(categoria: String): Pair<String, Color> {
-    return when (categoria.lowercase()) {
-        "comida" -> Pair("\uD83C\uDF54", Color(0xFF10B981))
-        "transporte" -> Pair("\uD83D\uDE97", Color(0xFF3B82F6))
-        "entretenimiento" -> Pair("\uD83C\uDFAC", Color(0xFFF59E0B))
-        "servicios" -> Pair("\uD83D\uDCA1", Color(0xFFEC4899))
-        "salud" -> Pair("\uD83D\uDC8A", Color(0xFF06B6D4))
-        "compras" -> Pair("\uD83D\uDECD\uFE0F", Color(0xFF8B5CF6))
-        "salario", "ingreso" -> Pair("\uD83D\uDCB0", Color(0xFF10B981))
-        else -> Pair("\uD83C\uDFF7\uFE0F", Color(0xFF64748B))
+    val c = categoria.lowercase(Locale.ROOT)
+    return when {
+        c.contains("restaurante") || c.contains("comida") -> Pair("🍔", Color(0xFF10B981))
+        c.contains("supermercado") || c.contains("mercado") -> Pair("🛒", Color(0xFF059669))
+        c.contains("transporte") || c.contains("gasolina") -> Pair("⛽", Color(0xFF3B82F6))
+        c.contains("entretenimiento") || c.contains("suscripciones") -> Pair("🍿", Color(0xFF8B5CF6))
+        c.contains("compras") || c.contains("comercio") || c.contains("hogar") -> Pair("🛍️", Color(0xFFF59E0B))
+        c.contains("facturas") || c.contains("servicios") -> Pair("💡", Color(0xFFEC4899))
+        c.contains("tarjeta") || c.contains("crédito") || c.contains("credito") -> Pair("💳", Color(0xFF6366F1))
+        c.contains("salud") || c.contains("droguería") || c.contains("drogueria") -> Pair("💊", Color(0xFF06B6D4))
+        c.contains("bolsillo") || c.contains("ahorro") -> Pair("🐷", Color(0xFF14B8A6))
+        c.contains("transferencia") || c.contains("envío") || c.contains("envio") -> Pair("💸", Color(0xFF64748B))
+        c.contains("ingreso") || c.contains("rendimiento") || c.contains("salario") -> Pair("💰", Color(0xFF22C55E))
+        c.contains("comisión") || c.contains("comision") || c.contains("impuesto") || c.contains("gmf") -> Pair("🏦", Color(0xFFEF4444))
+        else -> Pair("🏷️", Color(0xFF94A3B8))
     }
 }
 
@@ -105,14 +122,12 @@ fun MovimientosScreen(
     viewModel: MovimientosViewModel,
     userEmail: String = ""
 ) {
-    // sincronizar email con el viewmodel
     LaunchedEffect(userEmail) {
         if (userEmail.isNotBlank()) {
             viewModel.actualizarEmail(userEmail)
         }
     }
 
-    // observar estados del viewmodel
     val movimientos by viewModel.movimientos.collectAsState()
     val totalGastos by viewModel.totalGastos.collectAsState()
     val totalIngresos by viewModel.totalIngresos.collectAsState()
@@ -120,8 +135,8 @@ fun MovimientosScreen(
     val mostrarDialogoFormulario by viewModel.mostrarDialogoFormulario.collectAsState()
     val movimientoAEditar by viewModel.movimientoAEditar.collectAsState()
     val movimientoAEliminar by viewModel.movimientoAEliminar.collectAsState()
+    val mostrarDialogoEliminarTodo by viewModel.mostrarDialogoEliminarTodo.collectAsState()
 
-    // filtrar la lista en pantalla
     val listaFiltrada = remember(movimientos, filtroSeleccionado) {
         when (filtroSeleccionado) {
             1 -> movimientos.filter { it.tipo == "gasto" }
@@ -135,7 +150,6 @@ fun MovimientosScreen(
             .fillMaxSize()
             .background(BackgroundColor)
     ) {
-        // encabezado superior
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -154,30 +168,44 @@ fun MovimientosScreen(
                         color = TextDark
                     )
                     Text(
-                        text = "Gestion de gastos e ingresos",
+                        text = "Gasto e ingreso de la cuenta",
                         fontSize = 13.sp,
                         color = TextMuted
                     )
                 }
 
-                // boton para agregar nuevo gasto o ingreso
-                Button(
-                    onClick = { viewModel.abrirFormularioNuevo() },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = NavyPrimary)
-                ) {
-                    Text(
-                        text = "+ Nuevo",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (movimientos.isNotEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFFFF5F5))
+                                .clickable { viewModel.solicitarEliminarTodo() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            TrashIcon(modifier = Modifier.size(18.dp), color = RedAlert)
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                    }
+
+                    Button(
+                        onClick = { viewModel.abrirFormularioNuevo() },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = NavyPrimary)
+                    ) {
+                        Text(
+                            text = "+ Nuevo",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // tarjeta resumen de balance y gastos
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
@@ -190,7 +218,6 @@ fun MovimientosScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // columna de gastos totales
                     Column {
                         Text(
                             text = "TOTAL GASTOS",
@@ -208,7 +235,6 @@ fun MovimientosScreen(
                         )
                     }
 
-                    // columna de ingresos totales
                     Column {
                         Text(
                             text = "TOTAL INGRESOS",
@@ -226,7 +252,6 @@ fun MovimientosScreen(
                         )
                     }
 
-                    // columna de balance neto
                     Column {
                         Text(
                             text = "BALANCE NETO",
@@ -249,7 +274,6 @@ fun MovimientosScreen(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // selector de filtros
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -272,7 +296,6 @@ fun MovimientosScreen(
             }
         }
 
-        // mostrar la lista de movimientos o estado vacio
         if (listaFiltrada.isEmpty()) {
             Box(
                 modifier = Modifier
@@ -282,7 +305,7 @@ fun MovimientosScreen(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = "\uD83D\uDCDD",
+                        text = "📝",
                         fontSize = 48.sp
                     )
                     Spacer(modifier = Modifier.height(12.dp))
@@ -294,7 +317,7 @@ fun MovimientosScreen(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Agrega tu primer gasto o ingreso usando el boton superior.",
+                        text = "Agrega tu primer gasto o ingreso usando el botón superior.",
                         fontSize = 13.sp,
                         color = TextMuted,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -315,7 +338,12 @@ fun MovimientosScreen(
                     .padding(horizontal = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                items(listaFiltrada, key = { it.id }) { item ->
+                items(
+                    items = listaFiltrada,
+                    key = { mov: MovimientoEntity ->
+                        if (mov.id != 0) mov.id else "${mov.titulo}_${mov.monto}_${mov.fecha}_${mov.hashCode()}"
+                    }
+                ) { item ->
                     MovimientoCardItem(
                         movimiento = item,
                         onEditar = { viewModel.abrirFormularioEditar(item) },
@@ -324,14 +352,12 @@ fun MovimientosScreen(
                 }
 
                 item {
-                    // espacio final para que no tape la barra inferior
                     Spacer(modifier = Modifier.height(90.dp))
                 }
             }
         }
     }
 
-    // dialogo para crear o editar
     if (mostrarDialogoFormulario) {
         DialogoMovimiento(
             movimientoExistente = movimientoAEditar,
@@ -341,7 +367,6 @@ fun MovimientosScreen(
         )
     }
 
-    // dialogo para confirmar la eliminacion
     if (movimientoAEliminar != null) {
         val item = movimientoAEliminar!!
         AlertDialog(
@@ -377,9 +402,43 @@ fun MovimientosScreen(
             containerColor = Color.White
         )
     }
+
+    if (mostrarDialogoEliminarTodo) {
+        AlertDialog(
+            onDismissRequest = { viewModel.cancelarEliminarTodo() },
+            title = {
+                Text(
+                    text = "¿Eliminar todo el historial?",
+                    fontWeight = FontWeight.Bold,
+                    color = TextDark
+                )
+            },
+            text = {
+                Text(
+                    text = "Esta acción eliminará permanentemente todos tus ${movimientos.size} movimientos e historial financiero. ¿Estás seguro de continuar?",
+                    color = TextSecondary,
+                    fontSize = 14.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.confirmarEliminarTodo() },
+                    colors = ButtonDefaults.buttonColors(containerColor = RedAlert)
+                ) {
+                    Text(text = "Sí, borrar todo", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.cancelarEliminarTodo() }) {
+                    Text(text = "Cancelar", color = TextSecondary)
+                }
+            },
+            shape = RoundedCornerShape(16.dp),
+            containerColor = Color.White
+        )
+    }
 }
 
-// tarjeta individual de cada gasto o movimiento
 @Composable
 private fun MovimientoCardItem(
     movimiento: MovimientoEntity,
@@ -401,7 +460,6 @@ private fun MovimientoCardItem(
                 .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // icono con fondo suave
             Box(
                 modifier = Modifier
                     .size(44.dp)
@@ -414,7 +472,6 @@ private fun MovimientoCardItem(
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            // descripcion y categoria
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = movimiento.titulo,
@@ -431,7 +488,7 @@ private fun MovimientoCardItem(
                         fontWeight = FontWeight.Medium
                     )
                     Text(
-                        text = " \u2022 ",
+                        text = " • ",
                         fontSize = 11.sp,
                         color = TextMuted
                     )
@@ -443,7 +500,6 @@ private fun MovimientoCardItem(
                 }
             }
 
-            // monto y botones de accion
             Column(horizontalAlignment = Alignment.End) {
                 Text(
                     text = if (esGasto) "-${formatearMonto(movimiento.monto)}" else "+${formatearMonto(movimiento.monto)}",
@@ -454,9 +510,7 @@ private fun MovimientoCardItem(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // botones de editar y eliminar
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // boton editar
                     Text(
                         text = "Editar",
                         fontSize = 11.sp,
@@ -468,7 +522,6 @@ private fun MovimientoCardItem(
                             .padding(horizontal = 4.dp, vertical = 2.dp)
                     )
 
-                    // boton borrar
                     Text(
                         text = "Borrar",
                         fontSize = 11.sp,
@@ -485,7 +538,6 @@ private fun MovimientoCardItem(
     }
 }
 
-// dialogo para crear o actualizar un movimiento (formulario crud)
 @Composable
 private fun DialogoMovimiento(
     movimientoExistente: MovimientoEntity?,
@@ -500,7 +552,7 @@ private fun DialogoMovimiento(
         mutableStateOf(movimientoExistente?.monto?.let { String.format(Locale.US, "%.0f", it) } ?: "")
     }
     var tipo by remember { mutableStateOf(movimientoExistente?.tipo ?: "gasto") }
-    var categoria by remember { mutableStateOf(movimientoExistente?.categoria ?: "Comida") }
+    var categoria by remember { mutableStateOf(movimientoExistente?.categoria ?: "Comida y Restaurantes") }
     var errorMensaje by remember { mutableStateOf("") }
 
     AlertDialog(
@@ -515,7 +567,6 @@ private fun DialogoMovimiento(
         },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
-                // selector tipo gasto o ingreso
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -557,7 +608,6 @@ private fun DialogoMovimiento(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // campo titulo
                 Text(
                     text = "Descripcion",
                     fontSize = 12.sp,
@@ -568,7 +618,7 @@ private fun DialogoMovimiento(
                 OutlinedTextField(
                     value = titulo,
                     onValueChange = { titulo = it },
-                    placeholder = { Text("Ej: Almuerzo, Mercado, Uber", color = TextMuted, fontSize = 13.sp) },
+                    placeholder = { Text("Ej: Almuerzo, Mercado, Terpel", color = TextMuted, fontSize = 13.sp) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp),
@@ -580,11 +630,10 @@ private fun DialogoMovimiento(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // campo monto
                 Text(
                     text = "Monto en COP ($)",
                     fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Bold,
                     color = TextDark
                 )
                 Spacer(modifier = Modifier.height(4.dp))
@@ -604,7 +653,6 @@ private fun DialogoMovimiento(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // selector de categoria
                 Text(
                     text = "Categoria",
                     fontSize = 12.sp,
@@ -634,7 +682,6 @@ private fun DialogoMovimiento(
                     }
                 }
 
-                // mensaje de error si falta algun dato
                 if (errorMensaje.isNotBlank()) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
@@ -658,7 +705,6 @@ private fun DialogoMovimiento(
                         return@Button
                     }
 
-                    // crear o actualizar el objeto con el correo del usuario actual
                     val movimientoFinal = MovimientoEntity(
                         id = movimientoExistente?.id ?: 0,
                         usuarioEmail = movimientoExistente?.usuarioEmail ?: userEmail,
@@ -690,7 +736,6 @@ private fun DialogoMovimiento(
     )
 }
 
-// chip para filtrar la lista
 @Composable
 private fun FiltroChipItem(
     texto: String,
@@ -710,5 +755,24 @@ private fun FiltroChipItem(
             color = if (seleccionado) Color.White else TextDark,
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
         )
+    }
+}
+
+@Composable
+private fun TrashIcon(modifier: Modifier = Modifier, color: Color) {
+    Canvas(modifier = modifier) {
+        val w = size.width; val h = size.height
+        val stroke = Stroke(width = w * 0.12f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        drawLine(color, Offset(w * 0.2f, h * 0.25f), Offset(w * 0.8f, h * 0.25f), strokeWidth = w * 0.12f, cap = StrokeCap.Round)
+        drawLine(color, Offset(w * 0.4f, h * 0.15f), Offset(w * 0.6f, h * 0.15f), strokeWidth = w * 0.12f, cap = StrokeCap.Round)
+        val body = Path().apply {
+            moveTo(w * 0.28f, h * 0.25f)
+            lineTo(w * 0.32f, h * 0.85f)
+            lineTo(w * 0.68f, h * 0.85f)
+            lineTo(w * 0.72f, h * 0.25f)
+        }
+        drawPath(body, color = color, style = stroke)
+        drawLine(color, Offset(w * 0.43f, h * 0.40f), Offset(w * 0.43f, h * 0.72f), strokeWidth = w * 0.10f, cap = StrokeCap.Round)
+        drawLine(color, Offset(w * 0.57f, h * 0.40f), Offset(w * 0.57f, h * 0.72f), strokeWidth = w * 0.10f, cap = StrokeCap.Round)
     }
 }

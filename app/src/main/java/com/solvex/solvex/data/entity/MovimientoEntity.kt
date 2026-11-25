@@ -1,13 +1,9 @@
-package com.solvex.solvex.data
+package com.solvex.solvex.data.entity
 
-import androidx.room.Entity
-import androidx.room.PrimaryKey
-
-// tabla de room que guarda cada movimiento o gasto asociado a un usuario
-@Entity(tableName = "movimientos")
+// modelo que representa cada movimiento o gasto asociado a un usuario
 data class MovimientoEntity(
-    // identificador unico que se genera automaticamente
-    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    // identificador unico
+    val id: Int = 0,
     // correo del usuario para que cada persona solo vea sus propios movimientos
     val usuarioEmail: String,
     // descripcion o titulo del movimiento (ejemplo: mercado, transporte, etc.)

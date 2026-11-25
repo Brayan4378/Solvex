@@ -19,8 +19,12 @@ import com.solvex.solvex.ui.screens.SplashScreen
 import com.solvex.solvex.ui.theme.SolvexTheme
 import com.solvex.solvex.ui.viewmodel.AppScreen
 import com.solvex.solvex.ui.viewmodel.AuthViewModel
+import com.solvex.solvex.ui.viewmodel.AnalisisViewModel
+import com.solvex.solvex.ui.viewmodel.AsistenteViewModel
 import com.solvex.solvex.ui.viewmodel.DashboardViewModel
+import com.solvex.solvex.ui.viewmodel.ExtractoViewModel
 import com.solvex.solvex.ui.viewmodel.MovimientosViewModel
+import com.solvex.solvex.ui.viewmodel.PerfilViewModel
 import kotlinx.coroutines.launch
 
 // actividad principal que conecta los viewmodels con las vistas
@@ -35,6 +39,10 @@ class MainActivity : ComponentActivity() {
                 val authViewModel: AuthViewModel = viewModel()
                 val dashboardViewModel: DashboardViewModel = viewModel()
                 val movimientosViewModel: MovimientosViewModel = viewModel()
+                val extractoViewModel: ExtractoViewModel = viewModel()
+                val analisisViewModel: AnalisisViewModel = viewModel()
+                val asistenteViewModel: AsistenteViewModel = viewModel()
+                val perfilViewModel: PerfilViewModel = viewModel()
 
                 // observar el estado de navegacion y datos del auth viewmodel
                 val currentScreen by authViewModel.currentScreen.collectAsState()
@@ -102,6 +110,10 @@ class MainActivity : ComponentActivity() {
                                     userEmail = userEmail,
                                     dashboardViewModel = dashboardViewModel,
                                     movimientosViewModel = movimientosViewModel,
+                                    extractoViewModel = extractoViewModel,
+                                    analisisViewModel = analisisViewModel,
+                                    asistenteViewModel = asistenteViewModel,
+                                    perfilViewModel = perfilViewModel,
                                     onLogout = { authViewModel.logout() }
                                 )
                             }

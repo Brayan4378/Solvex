@@ -2,31 +2,36 @@ package com.solvex.solvex.ui.viewmodel
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
-import com.solvex.solvex.data.AppDatabase
-import com.solvex.solvex.data.SessionManager
-import com.solvex.solvex.data.repository.MovimientoRepository
+import androidx.lifecycle.viewModelScope
+import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Query
+import com.solvex.solvex.data.entity.MovimientoEntity
+import com.solvex.solvex.data.repository.FirestoreMovimientoRepository
+import com.solvex.solvex.session.SessionManager
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.SharingStarted
-import androidx.lifecycle.viewModelScope
-import com.solvex.solvex.data.MovimientoEntity
 
-// viewmodel que maneja el estado del dashboard
+@OptIn(ExperimentalCoroutinesApi::class)
 class DashboardViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val repository: MovimientoRepository
+    private val repository = FirestoreMovimientoRepository()
     private val sessionManager = SessionManager(application)
+    private val db = FirebaseFirestore.getInstance()
 
     private val _userEmail = MutableStateFlow(sessionManager.obtenerEmail())
 
-    // estado para mostrar el dialogo de confirmacion de cierre de sesion
     private val _showLogoutDialog = MutableStateFlow(false)
     val showLogoutDialog: StateFlow<Boolean> = _showLogoutDialog.asStateFlow()
 
-    // datos reactivos del dashboard
+    // Datos reactivos del dashboard desde Firestore
     val movimientos: StateFlow<List<MovimientoEntity>> = _userEmail.flatMapLatest { email ->
         repository.obtenerPorUsuario(email)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -39,10 +44,22 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         repository.obtenerTotalIngresosPorUsuario(email)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
-    init {
-        val db = AppDatabase.obtenerInstancia(application)
-        repository = MovimientoRepository(db.movimientoDao())
-    }
+    // Saldo inicial registrado de la cuenta
+    val saldoInicial: StateFlow<Double> = _userEmail.flatMapLatest { email ->
+        callbackFlow {
+            if (email.isBlank()) {
+                trySend(sessionManager.obtenerSaldoInicial())
+                awaitClose { }
+                return@callbackFlow
+            }
+            val listener = db.collection("cuentas").document(email)
+                .addSnapshotListener { snap: DocumentSnapshot?, _ ->
+                    val valSaldo = snap?.getDouble("saldoInicial") ?: sessionManager.obtenerSaldoInicial()
+                    trySend(valSaldo)
+                }
+            awaitClose { listener.remove() }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), sessionManager.obtenerSaldoInicial())
 
     fun actualizarEmail(email: String) {
         _userEmail.value = email

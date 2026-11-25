@@ -6,10 +6,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.solvex.solvex.AuthResult
 import com.solvex.solvex.GoogleAuthManager
-import com.solvex.solvex.data.AppDatabase
-import com.solvex.solvex.data.SessionManager
-import com.solvex.solvex.data.UsuarioEntity
-import com.solvex.solvex.data.repository.UsuarioRepository
+import com.solvex.solvex.session.SessionManager
+import com.solvex.solvex.data.entity.UsuarioEntity
+import com.solvex.solvex.data.repository.FirestoreUsuarioRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,7 +28,7 @@ enum class AppScreen {
 class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
     private val sessionManager = SessionManager(application)
-    private val repository: UsuarioRepository
+    private val repository = FirestoreUsuarioRepository()
     val googleAuthManager = GoogleAuthManager(application)
 
     private val _currentScreen = MutableStateFlow(AppScreen.SPLASH)
@@ -46,11 +45,6 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _loginErrorMsg = MutableStateFlow("")
     val loginErrorMsg: StateFlow<String> = _loginErrorMsg.asStateFlow()
-
-    init {
-        val db = AppDatabase.obtenerInstancia(application)
-        repository = UsuarioRepository(db.usuarioDao())
-    }
 
     // cuando el splash termina decidimos si ir al dashboard o al login
     fun onSplashFinished() {

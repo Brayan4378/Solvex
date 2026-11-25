@@ -3,10 +3,9 @@ package com.solvex.solvex.ui.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.solvex.solvex.data.AppDatabase
-import com.solvex.solvex.data.MovimientoEntity
-import com.solvex.solvex.data.SessionManager
-import com.solvex.solvex.data.repository.MovimientoRepository
+import com.solvex.solvex.data.entity.MovimientoEntity
+import com.solvex.solvex.data.repository.FirestoreMovimientoRepository
+import com.solvex.solvex.session.SessionManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -15,32 +14,36 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-// viewmodel que maneja los movimientos (gastos e ingresos) del usuario
+// ViewModel que maneja los movimientos (gastos e ingresos) del usuario
 class MovimientosViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val repository: MovimientoRepository
+    private val repository = FirestoreMovimientoRepository()
     private val sessionManager = SessionManager(application)
 
     private val _userEmail = MutableStateFlow(sessionManager.obtenerEmail())
     val userEmail: StateFlow<String> = _userEmail.asStateFlow()
 
-    // estado del filtro (0 = todos, 1 = solo gastos, 2 = solo ingresos)
+    // Estado del filtro (0 = todos, 1 = solo gastos, 2 = solo ingresos)
     private val _filtroSeleccionado = MutableStateFlow(0)
     val filtroSeleccionado: StateFlow<Int> = _filtroSeleccionado.asStateFlow()
 
-    // estado para mostrar el dialogo de formulario
+    // Estado para mostrar el diálogo de formulario
     private val _mostrarDialogoFormulario = MutableStateFlow(false)
     val mostrarDialogoFormulario: StateFlow<Boolean> = _mostrarDialogoFormulario.asStateFlow()
 
-    // movimiento que se esta editando (null = nuevo)
+    // Movimiento que se está editando (null = nuevo)
     private val _movimientoAEditar = MutableStateFlow<MovimientoEntity?>(null)
     val movimientoAEditar: StateFlow<MovimientoEntity?> = _movimientoAEditar.asStateFlow()
 
-    // movimiento a eliminar
+    // Movimiento individual a eliminar
     private val _movimientoAEliminar = MutableStateFlow<MovimientoEntity?>(null)
     val movimientoAEliminar: StateFlow<MovimientoEntity?> = _movimientoAEliminar.asStateFlow()
 
-    // datos reactivos desde Room
+    // Estado para diálogo de confirmación de eliminación masiva
+    private val _mostrarDialogoEliminarTodo = MutableStateFlow(false)
+    val mostrarDialogoEliminarTodo: StateFlow<Boolean> = _mostrarDialogoEliminarTodo.asStateFlow()
+
+    // Datos reactivos desde Firestore
     val movimientos: StateFlow<List<MovimientoEntity>> = _userEmail.flatMapLatest { email ->
         repository.obtenerPorUsuario(email)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -52,11 +55,6 @@ class MovimientosViewModel(application: Application) : AndroidViewModel(applicat
     val totalIngresos: StateFlow<Double> = _userEmail.flatMapLatest { email ->
         repository.obtenerTotalIngresosPorUsuario(email)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
-
-    init {
-        val db = AppDatabase.obtenerInstancia(application)
-        repository = MovimientoRepository(db.movimientoDao())
-    }
 
     fun actualizarEmail(email: String) {
         _userEmail.value = email
@@ -88,6 +86,14 @@ class MovimientosViewModel(application: Application) : AndroidViewModel(applicat
         _movimientoAEliminar.value = null
     }
 
+    fun solicitarEliminarTodo() {
+        _mostrarDialogoEliminarTodo.value = true
+    }
+
+    fun cancelarEliminarTodo() {
+        _mostrarDialogoEliminarTodo.value = false
+    }
+
     fun guardarMovimiento(movimiento: MovimientoEntity) {
         viewModelScope.launch {
             if (_movimientoAEditar.value != null) {
@@ -104,6 +110,13 @@ class MovimientosViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             repository.eliminar(item)
             _movimientoAEliminar.value = null
+        }
+    }
+
+    fun confirmarEliminarTodo() {
+        viewModelScope.launch {
+            repository.eliminarTodosPorUsuario(_userEmail.value)
+            _mostrarDialogoEliminarTodo.value = false
         }
     }
 }
