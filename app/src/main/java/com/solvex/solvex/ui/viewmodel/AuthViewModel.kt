@@ -1,20 +1,28 @@
 package com.solvex.solvex.ui.viewmodel
 
 import android.app.Application
-import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.solvex.solvex.AuthResult
+import com.solvex.solvex.BuildConfig
 import com.solvex.solvex.GoogleAuthManager
+import com.solvex.solvex.data.demo.DemoDataStore
 import com.solvex.solvex.session.SessionManager
-import com.solvex.solvex.data.entity.UsuarioEntity
-import com.solvex.solvex.data.repository.FirestoreUsuarioRepository
+import com.solvex.solvex.data.remote.AuthRequest
+import com.solvex.solvex.data.remote.GoogleRequest
+import com.solvex.solvex.data.remote.RegisterRequest
+import com.solvex.solvex.data.remote.SolvexApiClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import retrofit2.HttpException
+import org.json.JSONObject
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 
 // las pantallas que tiene la app
 enum class AppScreen {
@@ -28,8 +36,9 @@ enum class AppScreen {
 class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
     private val sessionManager = SessionManager(application)
-    private val repository = FirestoreUsuarioRepository()
+    private val api = SolvexApiClient.get(application)
     val googleAuthManager = GoogleAuthManager(application)
+    val demoModeAvailable: Boolean = BuildConfig.DEMO_MODE
 
     private val _currentScreen = MutableStateFlow(AppScreen.SPLASH)
     val currentScreen: StateFlow<AppScreen> = _currentScreen.asStateFlow()
@@ -48,11 +57,13 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
     // cuando el splash termina decidimos si ir al dashboard o al login
     fun onSplashFinished() {
-        if (sessionManager.estaLogueado()) {
+        if (sessionManager.estaLogueado() && sessionManager.obtenerToken().isNotBlank()) {
             _userName.value = sessionManager.obtenerNombre()
             _userEmail.value = sessionManager.obtenerEmail()
             _currentScreen.value = AppScreen.DASHBOARD
         } else {
+            // Las sesiones creadas antes de la API no tienen JWT; vuelve a autenticar para obtener uno.
+            sessionManager.cerrarSesion()
             _currentScreen.value = AppScreen.LOGIN
         }
     }
@@ -65,19 +76,27 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         viewModelScope.launch {
-            val usuario = withContext(Dispatchers.IO) {
-                repository.login(email.trim().lowercase(), pass)
-            }
-            if (usuario != null) {
-                sessionManager.guardarSesion(usuario.nombre, usuario.email)
-                _userName.value = usuario.nombre
-                _userEmail.value = usuario.email
+            try {
+                val response = withContext(Dispatchers.IO) { api.login(AuthRequest(email.trim().lowercase(), pass)) }
+                sessionManager.guardarSesion(response.usuario.nombre, response.usuario.email, response.accessToken)
+                _userName.value = response.usuario.nombre
+                _userEmail.value = response.usuario.email
                 _loginErrorMsg.value = ""
                 _currentScreen.value = AppScreen.DASHBOARD
-            } else {
-                _loginErrorMsg.value = "Correo o contraseña incorrectos"
+            } catch (exception: Exception) {
+                _loginErrorMsg.value = mensajeApi(exception, "No se pudo iniciar sesión con el servidor")
             }
         }
+    }
+
+    fun loginDemo() {
+        if (!BuildConfig.DEMO_MODE) return
+        DemoDataStore.iniciarSesion()
+        sessionManager.guardarSesion(DemoDataStore.NAME, DemoDataStore.EMAIL, "local-demo-session")
+        _userName.value = DemoDataStore.NAME
+        _userEmail.value = DemoDataStore.EMAIL
+        _loginErrorMsg.value = ""
+        _currentScreen.value = AppScreen.DASHBOARD
     }
 
     // registro con nombre, correo y contrasena
@@ -92,26 +111,17 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         viewModelScope.launch {
-            val existe = withContext(Dispatchers.IO) {
-                repository.existeEmail(email.trim().lowercase())
-            }
-            if (existe > 0) {
-                _signUpErrorMsg.value = "El correo electrónico '$email' ya está en uso"
-            } else {
-                withContext(Dispatchers.IO) {
-                    repository.insertar(
-                        UsuarioEntity(
-                            nombre = fullName.trim(),
-                            email = email.trim().lowercase(),
-                            contrasena = pass
-                        )
-                    )
+            try {
+                val response = withContext(Dispatchers.IO) {
+                    api.register(RegisterRequest(fullName.trim(), email.trim().lowercase(), pass))
                 }
-                sessionManager.guardarSesion(fullName.trim(), email.trim().lowercase())
-                _userName.value = fullName.trim()
-                _userEmail.value = email.trim().lowercase()
+                sessionManager.guardarSesion(response.usuario.nombre, response.usuario.email, response.accessToken)
+                _userName.value = response.usuario.nombre
+                _userEmail.value = response.usuario.email
                 _signUpErrorMsg.value = ""
                 _currentScreen.value = AppScreen.DASHBOARD
+            } catch (exception: Exception) {
+                _signUpErrorMsg.value = mensajeApi(exception, "No se pudo crear la cuenta en el servidor")
             }
         }
     }
@@ -122,30 +132,17 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
             is AuthResult.Success -> {
                 val googleUser = result.user
                 viewModelScope.launch {
-                    val nombre = googleUser.name?.ifBlank { null }
-                        ?: googleUser.email.substringBefore("@").replaceFirstChar { it.uppercase() }
-
-                    val usuarioExistente = withContext(Dispatchers.IO) {
-                        repository.buscarPorEmail(googleUser.email)
+                    try {
+                        val response = withContext(Dispatchers.IO) { api.googleLogin(GoogleRequest(googleUser.idToken)) }
+                        sessionManager.guardarSesion(response.usuario.nombre, response.usuario.email, response.accessToken)
+                        _userName.value = response.usuario.nombre
+                        _userEmail.value = response.usuario.email
+                        _signUpErrorMsg.value = ""
+                        _loginErrorMsg.value = ""
+                        _currentScreen.value = AppScreen.DASHBOARD
+                    } catch (exception: Exception) {
+                        _loginErrorMsg.value = mensajeApi(exception, "No se pudo validar la cuenta de Google")
                     }
-                    if (usuarioExistente == null) {
-                        withContext(Dispatchers.IO) {
-                            repository.insertar(
-                                UsuarioEntity(
-                                    nombre = nombre,
-                                    email = googleUser.email,
-                                    contrasena = "google_auth"
-                                )
-                            )
-                        }
-                    }
-
-                    sessionManager.guardarSesion(nombre, googleUser.email)
-                    _userName.value = nombre
-                    _userEmail.value = googleUser.email
-                    _signUpErrorMsg.value = ""
-                    _loginErrorMsg.value = ""
-                    _currentScreen.value = AppScreen.DASHBOARD
                 }
             }
             is AuthResult.Cancelled -> {
@@ -173,5 +170,18 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         _signUpErrorMsg.value = ""
         _loginErrorMsg.value = ""
         _currentScreen.value = screen
+    }
+
+    private fun mensajeApi(exception: Exception, fallback: String): String {
+        var cause: Throwable? = exception
+        while (cause != null) {
+            if (cause is ConnectException || cause is UnknownHostException || cause is SocketTimeoutException) {
+                return "No hay conexión con el backend. Inícialo en el puerto 8080. En emulador usa 10.0.2.2; en un celular, configura la IP local de tu computador."
+            }
+            cause = cause.cause
+        }
+        val body = (exception as? HttpException)?.response()?.errorBody()?.string()
+        val message = body?.let { runCatching { JSONObject(it).optString("error") }.getOrNull() }
+        return message?.takeIf { it.isNotBlank() } ?: fallback
     }
 }

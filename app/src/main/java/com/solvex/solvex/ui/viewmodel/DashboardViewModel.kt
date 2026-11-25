@@ -3,28 +3,27 @@ package com.solvex.solvex.ui.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.firestore.DocumentSnapshot
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.Query
 import com.solvex.solvex.data.entity.MovimientoEntity
-import com.solvex.solvex.data.repository.FirestoreMovimientoRepository
+import com.solvex.solvex.data.repository.CuentaRepository
+import com.solvex.solvex.data.repository.MovimientoRepository
 import com.solvex.solvex.session.SessionManager
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DashboardViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val repository = FirestoreMovimientoRepository()
+    private val repository = MovimientoRepository(application)
     private val sessionManager = SessionManager(application)
-    private val db = FirebaseFirestore.getInstance()
+    private val cuentaRepository = CuentaRepository(application)
 
     private val _userEmail = MutableStateFlow(sessionManager.obtenerEmail())
 
@@ -46,23 +45,22 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     // Saldo inicial registrado de la cuenta
     val saldoInicial: StateFlow<Double> = _userEmail.flatMapLatest { email ->
-        callbackFlow {
-            if (email.isBlank()) {
-                trySend(sessionManager.obtenerSaldoInicial())
-                awaitClose { }
-                return@callbackFlow
-            }
-            val listener = db.collection("cuentas").document(email)
-                .addSnapshotListener { snap: DocumentSnapshot?, _ ->
-                    val valSaldo = snap?.getDouble("saldoInicial") ?: sessionManager.obtenerSaldoInicial()
-                    trySend(valSaldo)
+        flow {
+            while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+                val saldo = try {
+                    cuentaRepository.obtener().saldoInicial.also { sessionManager.guardarSaldoInicial(it) }
+                } catch (_: Exception) {
+                    sessionManager.obtenerSaldoInicial()
                 }
-            awaitClose { listener.remove() }
+                emit(saldo)
+                delay(5 * 60 * 1_000L)
+            }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), sessionManager.obtenerSaldoInicial())
 
     fun actualizarEmail(email: String) {
         _userEmail.value = email
+        repository.actualizarAhora()
     }
 
     fun mostrarDialogoLogout() {

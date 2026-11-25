@@ -11,20 +11,28 @@ class SessionManager(context: Context) {
         private const val KEY_ESTA_LOGUEADO = "esta_logueado"
         private const val KEY_NOMBRE = "nombre_usuario"
         private const val KEY_EMAIL = "email_usuario"
+        private const val KEY_ACCESS_TOKEN = "access_token"
         private const val KEY_SALDO_INICIAL = "saldo_inicial_cuenta"
     }
 
     // Guardar la sesión cuando el usuario inicia sesión
-    fun guardarSesion(nombre: String, email: String) {
+    fun guardarSesion(nombre: String, email: String, accessToken: String? = null) {
         val emailLimpio = if (email.isBlank()) "usuario@solvex.com" else email.trim().lowercase()
         val nombreLimpio = if (nombre.isBlank()) "Brayan Ocampo" else nombre.trim()
         prefs.edit().apply {
             putBoolean(KEY_ESTA_LOGUEADO, true)
             putString(KEY_NOMBRE, nombreLimpio)
             putString(KEY_EMAIL, emailLimpio)
+            if (!accessToken.isNullOrBlank()) putString(KEY_ACCESS_TOKEN, accessToken)
             apply()
         }
     }
+
+    fun guardarToken(accessToken: String) {
+        prefs.edit().putString(KEY_ACCESS_TOKEN, accessToken).apply()
+    }
+
+    fun obtenerToken(): String = prefs.getString(KEY_ACCESS_TOKEN, "") ?: ""
 
     fun guardarSaldoInicial(saldo: Double) {
         prefs.edit().putFloat(KEY_SALDO_INICIAL, saldo.toFloat()).apply()

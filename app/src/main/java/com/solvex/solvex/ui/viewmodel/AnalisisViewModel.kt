@@ -3,8 +3,9 @@ package com.solvex.solvex.ui.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import android.content.Context
 import com.solvex.solvex.data.entity.MovimientoEntity
-import com.solvex.solvex.data.repository.FirestoreMovimientoRepository
+import com.solvex.solvex.data.repository.MovimientoRepository
 import com.solvex.solvex.session.SessionManager
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,8 +43,9 @@ data class SuscripcionElemento(
 @OptIn(ExperimentalCoroutinesApi::class)
 class AnalisisViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val repository = FirestoreMovimientoRepository()
+    private val repository = MovimientoRepository(application)
     private val sessionManager = SessionManager(application)
+    private val preferences = application.getSharedPreferences("solvex_profile", Context.MODE_PRIVATE)
 
     private val _userEmail = MutableStateFlow(sessionManager.obtenerEmail())
 
@@ -105,14 +107,14 @@ class AnalisisViewModel(application: Application) : AndroidViewModel(application
 
         if (agrupados.isEmpty()) {
             return@map listOf(
-                PresupuestoCategoria("Comida", 0.0, 600000.0, 0),
-                PresupuestoCategoria("Transporte", 0.0, 200000.0, 0),
-                PresupuestoCategoria("Entret.", 0.0, 150000.0, 0)
+                PresupuestoCategoria("Comida", 0.0, limiteConfigurado("Comida y Restaurantes", 600000.0), 0),
+                PresupuestoCategoria("Transporte", 0.0, limiteConfigurado("Transporte y Gasolina", 200000.0), 0),
+                PresupuestoCategoria("Entret.", 0.0, limiteConfigurado("Entretenimiento", 150000.0), 0)
             )
         }
 
         agrupados.entries.sortedByDescending { it.value }.take(4).map { (cat, gastado) ->
-            val limiteEstimado = when (cat) {
+            val limitePredeterminado = when (cat) {
                 "Comida y Restaurantes" -> 600000.0
                 "Supermercados y Mercado" -> 500000.0
                 "Transporte y Gasolina" -> 200000.0
@@ -121,6 +123,7 @@ class AnalisisViewModel(application: Application) : AndroidViewModel(application
                 "Compras y Comercio" -> 400000.0
                 else -> (gastado * 1.25).coerceAtLeast(100000.0)
             }
+            val limiteEstimado = limiteConfigurado(cat, limitePredeterminado)
             val pct = ((gastado / limiteEstimado) * 100).toInt().coerceIn(1, 100)
             val nombreMostrar = when (cat) {
                 "Comida y Restaurantes" -> "Comida"
@@ -182,11 +185,15 @@ class AnalisisViewModel(application: Application) : AndroidViewModel(application
 
     fun actualizarEmail(email: String) {
         _userEmail.value = email
+        repository.actualizarAhora()
     }
 
     fun cambiarPeriodo(periodo: Int) {
         _periodoSeleccionado.value = periodo
     }
+
+    private fun limiteConfigurado(categoria: String, predeterminado: Double): Double =
+        preferences.getString("limite:${_userEmail.value}:$categoria", null)?.toDoubleOrNull() ?: predeterminado
 
     private fun rangoPeriodo(lista: List<MovimientoEntity>): Pair<Long, Long> {
         val refTime = if (lista.isNotEmpty()) {

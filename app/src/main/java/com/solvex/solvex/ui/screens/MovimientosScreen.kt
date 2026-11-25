@@ -25,6 +25,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -136,6 +137,10 @@ fun MovimientosScreen(
     val movimientoAEditar by viewModel.movimientoAEditar.collectAsState()
     val movimientoAEliminar by viewModel.movimientoAEliminar.collectAsState()
     val mostrarDialogoEliminarTodo by viewModel.mostrarDialogoEliminarTodo.collectAsState()
+    val cargando by viewModel.cargando.collectAsState()
+    val errorCarga by viewModel.errorCarga.collectAsState()
+    val errorOperacion by viewModel.errorOperacion.collectAsState()
+    val operacionEnCurso by viewModel.operacionEnCurso.collectAsState()
 
     val listaFiltrada = remember(movimientos, filtroSeleccionado) {
         when (filtroSeleccionado) {
@@ -296,7 +301,32 @@ fun MovimientosScreen(
             }
         }
 
-        if (listaFiltrada.isEmpty()) {
+        if (errorCarga.isNotBlank()) {
+            Text(
+                text = errorCarga,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+                color = TextSecondary,
+                fontSize = 12.sp
+            )
+        }
+        if (errorOperacion.isNotBlank() && !mostrarDialogoFormulario && movimientoAEliminar == null && !mostrarDialogoEliminarTodo) {
+            Text(
+                text = errorOperacion,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+                color = RedAlert,
+                fontSize = 12.sp
+            )
+        }
+
+        if (listaFiltrada.isEmpty() && cargando) {
+            Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.TopCenter) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = GreenPrimary)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Conectando y cargando movimientos…", fontSize = 13.sp, color = TextMuted)
+                }
+            }
+        } else if (listaFiltrada.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -362,8 +392,11 @@ fun MovimientosScreen(
         DialogoMovimiento(
             movimientoExistente = movimientoAEditar,
             userEmail = userEmail.ifBlank { viewModel.userEmail.collectAsState().value },
+            errorOperacion = errorOperacion,
+            operacionEnCurso = operacionEnCurso,
             onDismiss = { viewModel.cerrarFormulario() },
-            onGuardar = { nuevoMovimiento -> viewModel.guardarMovimiento(nuevoMovimiento) }
+            onGuardar = { nuevoMovimiento -> viewModel.guardarMovimiento(nuevoMovimiento) },
+            onLimpiarError = { viewModel.limpiarErrorOperacion() }
         )
     }
 
@@ -380,17 +413,18 @@ fun MovimientosScreen(
             },
             text = {
                 Text(
-                    text = "Estas seguro de que deseas eliminar '${item.titulo}' por ${formatearMonto(item.monto)}?",
+                    text = errorOperacion.ifBlank { "Estas seguro de que deseas eliminar '${item.titulo}' por ${formatearMonto(item.monto)}?" },
                     color = TextSecondary,
                     fontSize = 14.sp
                 )
             },
             confirmButton = {
                 Button(
+                    enabled = !operacionEnCurso,
                     onClick = { viewModel.confirmarEliminar() },
                     colors = ButtonDefaults.buttonColors(containerColor = RedAlert)
                 ) {
-                    Text(text = "Eliminar", color = Color.White)
+                    Text(text = if (operacionEnCurso) "Eliminando…" else "Eliminar", color = Color.White)
                 }
             },
             dismissButton = {
@@ -422,6 +456,7 @@ fun MovimientosScreen(
             },
             confirmButton = {
                 Button(
+                    enabled = !operacionEnCurso,
                     onClick = { viewModel.confirmarEliminarTodo() },
                     colors = ButtonDefaults.buttonColors(containerColor = RedAlert)
                 ) {
@@ -542,8 +577,11 @@ private fun MovimientoCardItem(
 private fun DialogoMovimiento(
     movimientoExistente: MovimientoEntity?,
     userEmail: String,
+    errorOperacion: String,
+    operacionEnCurso: Boolean,
     onDismiss: () -> Unit,
-    onGuardar: (MovimientoEntity) -> Unit
+    onGuardar: (MovimientoEntity) -> Unit,
+    onLimpiarError: () -> Unit
 ) {
     val esEdicion = movimientoExistente != null
 
@@ -617,7 +655,7 @@ private fun DialogoMovimiento(
                 Spacer(modifier = Modifier.height(4.dp))
                 OutlinedTextField(
                     value = titulo,
-                    onValueChange = { titulo = it },
+                    onValueChange = { titulo = it; onLimpiarError() },
                     placeholder = { Text("Ej: Almuerzo, Mercado, Terpel", color = TextMuted, fontSize = 13.sp) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
@@ -639,7 +677,7 @@ private fun DialogoMovimiento(
                 Spacer(modifier = Modifier.height(4.dp))
                 OutlinedTextField(
                     value = montoTexto,
-                    onValueChange = { montoTexto = it.filter { char -> char.isDigit() } },
+                    onValueChange = { montoTexto = it.filter { char -> char.isDigit() }; onLimpiarError() },
                     placeholder = { Text("Ej: 35000", color = TextMuted, fontSize = 13.sp) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
@@ -682,10 +720,11 @@ private fun DialogoMovimiento(
                     }
                 }
 
-                if (errorMensaje.isNotBlank()) {
+                val errorVisible = errorOperacion.ifBlank { errorMensaje }
+                if (errorVisible.isNotBlank()) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = errorMensaje,
+                        text = errorVisible,
                         color = RedAlert,
                         fontSize = 12.sp
                     )
@@ -694,6 +733,7 @@ private fun DialogoMovimiento(
         },
         confirmButton = {
             Button(
+                enabled = !operacionEnCurso,
                 onClick = {
                     val montoDouble = montoTexto.toDoubleOrNull()
                     if (titulo.isBlank()) {
@@ -720,7 +760,7 @@ private fun DialogoMovimiento(
                 colors = ButtonDefaults.buttonColors(containerColor = NavyPrimary)
             ) {
                 Text(
-                    text = if (esEdicion) "Actualizar" else "Guardar",
+                    text = if (operacionEnCurso) "Guardando…" else if (esEdicion) "Actualizar" else "Guardar",
                     fontWeight = FontWeight.Bold,
                     color = Color.White
                 )

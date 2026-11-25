@@ -1,0 +1,22 @@
+server:
+  port: ${PORT:8080}
+
+spring:
+  application:
+    name: solvex-api
+
+firebase:
+  project-id: ${FIREBASE_PROJECT_ID}
+
+solvex:
+  jwt:
+    secret: ${SOLVEX_JWT_SECRET}
+    expiration-minutes: ${SOLVEX_JWT_EXPIRATION_MINUTES:720}
+  google:
+    client-id: ${GOOGLE_WEB_CLIENT_ID:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

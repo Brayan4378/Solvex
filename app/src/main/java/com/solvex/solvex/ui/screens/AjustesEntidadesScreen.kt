@@ -1,5 +1,8 @@
 package com.solvex.solvex.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -18,16 +21,26 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,6 +69,40 @@ fun AjustesEntidadesScreen(
 ) {
     val notificaciones by viewModel.notificacionesActivas.collectAsState()
     val actualizacionAuto by viewModel.actualizacionAutoActiva.collectAsState()
+    val ingresosAnio by viewModel.ingresosAnioActual.collectAsState()
+    val porcentajeTopeRenta by viewModel.porcentajeTopeRenta.collectAsState()
+    val operacionEnCurso by viewModel.operacionEnCurso.collectAsState()
+    val error by viewModel.error.collectAsState()
+    var confirmarDesvincular by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        viewModel.toggleNotificaciones(granted)
+    }
+
+    if (confirmarDesvincular) {
+        AlertDialog(
+            onDismissRequest = { if (!operacionEnCurso) confirmarDesvincular = false },
+            title = { Text("¿Desvincular todas las cuentas?") },
+            text = { Text("Se eliminarán de Solvex los movimientos, saldos e historial de extractos asociados a tu perfil. Esta acción no se puede deshacer.") },
+            confirmButton = {
+                Button(
+                    enabled = !operacionEnCurso,
+                    onClick = {
+                        viewModel.desvincularTodasLasCuentas {
+                            confirmarDesvincular = false
+                            onBackClick()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = RedAlert)
+                ) { Text(if (operacionEnCurso) "Desvinculando…" else "Desvincular", color = Color.White) }
+            },
+            dismissButton = {
+                TextButton(enabled = !operacionEnCurso, onClick = { confirmarDesvincular = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
 
     Column(
         modifier = modifier
@@ -93,6 +140,10 @@ fun AjustesEntidadesScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        if (error.isNotBlank()) {
+            Text(error, color = RedAlert, fontSize = 13.sp, modifier = Modifier.padding(bottom = 12.dp))
+        }
+
         // Tarjeta con las Opciones de Ajuste
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -119,14 +170,18 @@ fun AjustesEntidadesScreen(
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Avisos inmediatos por cada transacción",
+                            text = "Movimientos nuevos y umbrales de ingresos para renta",
                             fontSize = 12.sp,
                             color = TextMuted
                         )
                     }
                     Switch(
                         checked = notificaciones,
-                        onCheckedChange = { viewModel.toggleNotificaciones(it) },
+                        onCheckedChange = { enabled ->
+                            if (enabled && Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            } else viewModel.toggleNotificaciones(enabled)
+                        },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.White,
                             checkedTrackColor = GreenPrimary
@@ -153,7 +208,7 @@ fun AjustesEntidadesScreen(
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Sincronizar saldos cada 4 horas",
+                            text = "Actualizar el saldo guardado cada 4 horas",
                             fontSize = 12.sp,
                             color = TextMuted
                         )
@@ -236,11 +291,45 @@ fun AjustesEntidadesScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0))
+        ) {
+            Column(modifier = Modifier.fillMaxWidth().padding(18.dp)) {
+                Text("SEGUIMIENTO DE INGRESOS PARA RENTA 2026", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NavyPrimary)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    "${currency(ingresosAnio)} de ${currency(PerfilViewModel.TOPE_INGRESOS_RENTA_2026)}",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = NavyPrimary
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                LinearProgressIndicator(
+                    progress = { (ingresosAnio / PerfilViewModel.TOPE_INGRESOS_RENTA_2026).toFloat().coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth().height(7.dp).clip(RoundedCornerShape(4.dp)),
+                    color = if (porcentajeTopeRenta >= 100) RedAlert else GreenPrimary,
+                    trackColor = GreenPrimary.copy(alpha = 0.12f)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("$porcentajeTopeRenta% del umbral orientativo (1.400 UVT).", fontSize = 12.sp, color = TextMuted)
+                Spacer(modifier = Modifier.height(5.dp))
+                Text(
+                    "Se calcula con los movimientos de ingreso registrados en Solvex durante 2026. Las notificaciones se envían al 50%, 80% y 100%. La DIAN también evalúa otros requisitos para declarar.",
+                    fontSize = 11.sp,
+                    color = TextMuted,
+                    lineHeight = 15.sp
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
         // Botón Peligro: Desvincular todas las cuentas
         Button(
-            onClick = {
-                viewModel.desvincularTodasLasCuentas { onBackClick() }
-            },
+            onClick = { confirmarDesvincular = true },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(52.dp),
@@ -260,6 +349,9 @@ fun AjustesEntidadesScreen(
         }
     }
 }
+
+private fun currency(amount: Double): String =
+    java.text.NumberFormat.getCurrencyInstance(java.util.Locale("es", "CO")).format(amount)
 
 @Composable
 private fun ArrowLeftIcon(modifier: Modifier = Modifier, color: Color) {

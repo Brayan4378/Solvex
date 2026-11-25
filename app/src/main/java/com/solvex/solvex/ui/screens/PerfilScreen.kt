@@ -1,5 +1,8 @@
 package com.solvex.solvex.ui.screens
 
+import android.content.Context
+import android.content.Intent
+import android.provider.Settings
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -38,6 +41,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -69,6 +73,9 @@ fun PerfilScreen(
     }
 
     val entidades by viewModel.entidadesVinculadas.collectAsState()
+    val context = LocalContext.current
+    val dispositivoProtegido = context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_FINGERPRINT) &&
+        (context.getSystemService(Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager)?.isDeviceSecure == true
 
     LazyColumn(
         modifier = modifier
@@ -102,7 +109,7 @@ fun PerfilScreen(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = if (userName.contains(" ")) userName else "$userName Méndez",
+                    text = userName,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = NavyPrimary
@@ -111,7 +118,7 @@ fun PerfilScreen(
                 Spacer(modifier = Modifier.height(2.dp))
 
                 Text(
-                    text = if (userEmail.isNotBlank()) userEmail else "carlos.mendez@solvex.com",
+                    text = userEmail.ifBlank { "Sin correo" },
                     fontSize = 13.sp,
                     color = TextMuted
                 )
@@ -142,8 +149,14 @@ fun PerfilScreen(
         }
 
         // Tarjetas de entidades bancarias vinculadas
-        items(entidades) { entidad ->
-            TarjetaEntidadBancaria(entidad = entidad)
+        if (entidades.isNotEmpty()) {
+            items(entidades) { entidad ->
+                TarjetaEntidadBancaria(entidad = entidad)
+            }
+        } else {
+            item {
+                Text("Aún no hay cuentas vinculadas. Importa un extracto para añadir tu entidad y saldo.", fontSize = 13.sp, color = TextMuted)
+            }
         }
 
         // Botón: Vincular nueva cuenta bancaria
@@ -206,9 +219,9 @@ fun PerfilScreen(
                     FilaPreferencia(
                         titulo = "Seguridad y huella digital",
                         iconoStr = "security",
-                        valorDerecho = "Activo",
+                        valorDerecho = if (dispositivoProtegido) "Activo" else "Configurar",
                         esCerrarSesion = false,
-                        onClick = { }
+                        onClick = { runCatching { context.startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS)) } }
                     )
 
                     HorizontalDivider(color = Color(0xFFF1F5F9))

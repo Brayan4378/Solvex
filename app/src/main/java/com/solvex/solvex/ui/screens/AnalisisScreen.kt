@@ -73,7 +73,8 @@ private val coloresCategorias = mapOf(
 fun AnalisisScreen(
     modifier: Modifier = Modifier,
     viewModel: AnalisisViewModel,
-    userEmail: String = ""
+    userEmail: String = "",
+    onEditarLimites: () -> Unit = {}
 ) {
     LaunchedEffect(userEmail) {
         if (userEmail.isNotBlank()) viewModel.actualizarEmail(userEmail)
@@ -216,7 +217,7 @@ fun AnalisisScreen(
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = GreenPrimary,
-                            modifier = Modifier.clickable { }
+                            modifier = Modifier.clickable { onEditarLimites() }
                         )
                     }
 
@@ -251,13 +252,6 @@ fun AnalisisScreen(
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             color = NavyPrimary
-                        )
-                        Text(
-                            text = "Gestionar",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = GreenPrimary,
-                            modifier = Modifier.clickable { }
                         )
                     }
 

@@ -1,5 +1,7 @@
 package com.solvex.solvex.ui.screens
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -29,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -52,6 +55,7 @@ fun ContactarSoporteScreen(
 ) {
     var faq1Expandida by remember { mutableStateOf(false) }
     var faq2Expandida by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     LazyColumn(
         modifier = modifier
@@ -172,7 +176,7 @@ fun ContactarSoporteScreen(
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "Habla con un asesor ahora",
+                                text = "Chatea con el asistente de Solvex",
                                 fontSize = 12.sp,
                                 color = TextMuted
                             )
@@ -207,6 +211,10 @@ fun ContactarSoporteScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .clickable {
+                            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:+576012345678"))
+                            runCatching { context.startActivity(intent) }
+                        }
                         .padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -257,6 +265,11 @@ fun ContactarSoporteScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .clickable {
+                            val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:soporte@solvex.com"))
+                                .putExtra(Intent.EXTRA_SUBJECT, "Soporte de Solvex")
+                            runCatching { context.startActivity(intent) }
+                        }
                         .padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween

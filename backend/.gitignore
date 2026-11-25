@@ -1,0 +1,7 @@
+target/
+.idea/
+*.iml
+service-account*.json
+firebase-adminsdk*.json
+.env
+.jwt-secret

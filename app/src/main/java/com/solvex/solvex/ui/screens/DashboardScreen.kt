@@ -283,7 +283,7 @@ fun DashboardScreen(
                             Text(text = "↓", fontSize = 14.sp, color = RedAlert)
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "Gastos",
+                                text = "Consumo",
                                 fontSize = 11.sp,
                                 color = Color.White.copy(alpha = 0.6f)
                             )
@@ -509,7 +509,12 @@ fun DashboardScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            val listaGastos = remember(movimientos) { movimientos.filter { it.tipo == "gasto" } }
+            // Los movimientos entre la cuenta y los bolsillos no representan consumo.
+            val listaGastos = remember(movimientos) {
+                movimientos.filter {
+                    it.tipo == "gasto" && !it.categoria.contains("Bolsillos", ignoreCase = true)
+                }
+            }
             val sumaTotalGastos = remember(listaGastos) { listaGastos.sumOf { it.monto } }
 
             val categoriasCalculadas = remember(listaGastos, sumaTotalGastos) {
@@ -518,11 +523,19 @@ fun DashboardScreen(
                         .map { (cat, items) ->
                             val subtotal = items.sumOf { it.monto }
                             val porcentaje = ((subtotal / sumaTotalGastos) * 100).toFloat()
-                            val color = when (cat.lowercase(Locale.ROOT)) {
-                                "comida", "comida y mercado" -> ChartGreen
-                                "transporte" -> ChartBlue
-                                "entretenimiento" -> ChartOrange
-                                "servicios" -> ChartRed
+                            val categoriaNormalizada = cat.lowercase(Locale.ROOT)
+                            val color = when {
+                                categoriaNormalizada.contains("comida") || categoriaNormalizada.contains("restaurante") -> ChartGreen
+                                categoriaNormalizada.contains("supermercado") || categoriaNormalizada.contains("mercado") -> Color(0xFF059669)
+                                categoriaNormalizada.contains("transporte") || categoriaNormalizada.contains("gasolina") -> ChartBlue
+                                categoriaNormalizada.contains("entretenimiento") || categoriaNormalizada.contains("suscrip") -> ChartOrange
+                                categoriaNormalizada.contains("factura") || categoriaNormalizada.contains("servicio") -> ChartRed
+                                categoriaNormalizada.contains("compra") || categoriaNormalizada.contains("comercio") -> Color(0xFF8B5CF6)
+                                categoriaNormalizada.contains("salud") || categoriaNormalizada.contains("droguer") -> Color(0xFF06B6D4)
+                                categoriaNormalizada.contains("tarjeta") || categoriaNormalizada.contains("crédito") || categoriaNormalizada.contains("credito") -> Color(0xFF6366F1)
+                                categoriaNormalizada.contains("transferencia") || categoriaNormalizada.contains("envío") || categoriaNormalizada.contains("envio") -> Color(0xFF64748B)
+                                categoriaNormalizada.contains("comisión") || categoriaNormalizada.contains("comision") || categoriaNormalizada.contains("impuesto") -> Color(0xFFB91C1C)
+                                categoriaNormalizada.contains("ahorro") || categoriaNormalizada.contains("bolsillo") -> Color(0xFF14B8A6)
                                 else -> Color(0xFF8B5CF6)
                             }
                             Triple(cat, porcentaje, color)
@@ -593,7 +606,7 @@ fun DashboardScreen(
                                 color = TextMuted
                             )
                             Text(
-                                text = formatearMonto(totalGastos),
+                                text = formatearMonto(sumaTotalGastos),
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = TextDark

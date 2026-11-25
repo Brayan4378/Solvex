@@ -7,6 +7,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -60,6 +61,7 @@ fun MainScreen(
     analisisViewModel: AnalisisViewModel,
     asistenteViewModel: AsistenteViewModel,
     perfilViewModel: PerfilViewModel,
+    demoMode: Boolean = false,
     onLogout: () -> Unit = {}
 ) {
     // tab seleccionada (0=inicio, 1=movimientos, 2=extracto, 3=analisis, 4=asistente)
@@ -189,11 +191,19 @@ fun MainScreen(
             }
         }
     ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
+        Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+            if (demoMode) {
+                Surface(color = Color(0xFFFFF3CD), modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        "MODO DEMO LOCAL · datos de muestra; no se guardan en la nube",
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                        color = Color(0xFF744210),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+            Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
             if (subPantalla == 1) {
                 // Imagen 1: Perfil / Entidades Vinculadas
                 PerfilScreen(
@@ -217,7 +227,7 @@ fun MainScreen(
                     viewModel = perfilViewModel,
                     onBackClick = { subPantalla = 1 },
                     onContactarSoporte = { subPantalla = 3 },
-                    onLimitesGasto = { selectedTab = 3; subPantalla = 0 }
+                    onLimitesGasto = { subPantalla = 4 }
                 )
             } else if (subPantalla == 3) {
                 // Imagen 3: Contactar Soporte
@@ -227,6 +237,16 @@ fun MainScreen(
                         selectedTab = 4
                         subPantalla = 0
                     }
+                )
+            } else if (subPantalla == 4) {
+                LimitesGastoScreen(
+                    viewModel = perfilViewModel,
+                    onBackClick = { subPantalla = 2 }
+                )
+            } else if (subPantalla == 5) {
+                LimitesGastoScreen(
+                    viewModel = perfilViewModel,
+                    onBackClick = { subPantalla = 0 }
                 )
             } else {
                 when (selectedTab) {
@@ -247,7 +267,11 @@ fun MainScreen(
                         onCerrarClick = { selectedTab = 0 },
                         onMovimientosGuardados = { selectedTab = 1 }
                     )
-                    3 -> AnalisisScreen(viewModel = analisisViewModel, userEmail = userEmail)
+                    3 -> AnalisisScreen(
+                        viewModel = analisisViewModel,
+                        userEmail = userEmail,
+                        onEditarLimites = { subPantalla = 5 }
+                    )
                     4 -> AsistenteScreen(viewModel = asistenteViewModel, userName = userName, userEmail = userEmail)
                     else -> DashboardScreen(
                         viewModel = dashboardViewModel,
@@ -257,6 +281,7 @@ fun MainScreen(
                         onNavigateToMovimientos = { selectedTab = 1 }
                     )
                 }
+            }
             }
         }
     }

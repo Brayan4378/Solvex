@@ -25,11 +25,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -76,15 +80,16 @@ fun AsistenteScreen(
     val mensajes by viewModel.mensajes.collectAsState()
     val cargando by viewModel.cargando.collectAsState()
     var textoInput by remember { mutableStateOf("") }
+    var mostrarConfirmacionLimpiar by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val keyboardController = LocalSoftwareKeyboardController.current
 
     val preguntasFrecuentes = remember {
         listOf(
-            "¿Cuánto gasté en comida este mes?",
-            "¿En qué categoría gasté más?",
-            "¿Cómo va mi ahorro este mes?",
-            "¿Qué suscripciones tengo?"
+            "¿Cuánto gasté en Terpel este mes?",
+            "¿En qué categoría gasté más en octubre?",
+            "¿Cuánto recibí este mes?",
+            "Muéstrame mis últimos movimientos"
         )
     }
 
@@ -100,6 +105,26 @@ fun AsistenteScreen(
             .background(Color.White)
             .imePadding()
     ) {
+        if (mostrarConfirmacionLimpiar) {
+            AlertDialog(
+                onDismissRequest = { mostrarConfirmacionLimpiar = false },
+                title = { Text("¿Eliminar el historial del chat?") },
+                text = { Text("Se borrará esta conversación y se iniciará un chat nuevo.") },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            mostrarConfirmacionLimpiar = false
+                            viewModel.limpiarHistorial()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = NavyPrimary)
+                    ) { Text("Eliminar historial", color = Color.White) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { mostrarConfirmacionLimpiar = false }) { Text("Cancelar") }
+                }
+            )
+        }
+
         // Header de Solvex AI
         Surface(
             modifier = Modifier.fillMaxWidth(),
@@ -144,7 +169,7 @@ fun AsistenteScreen(
                         modifier = Modifier
                             .size(36.dp)
                             .clip(CircleShape)
-                            .clickable { },
+                        .clickable { mostrarConfirmacionLimpiar = true },
                         contentAlignment = Alignment.Center
                     ) {
                         GearIcon(modifier = Modifier.size(20.dp), color = TextMuted)

@@ -6,16 +6,20 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.firestore.FirebaseFirestore
 import com.solvex.solvex.data.entity.ExtractoAnalizado
-import com.solvex.solvex.data.repository.FirestoreMovimientoRepository
+import com.solvex.solvex.data.remote.CuentaResponse
+import com.solvex.solvex.data.remote.ExtractoRequest
+import com.solvex.solvex.data.repository.CuentaRepository
+import com.solvex.solvex.data.repository.ExtractoRepository
+import com.solvex.solvex.data.repository.MovimientoRepository
 import com.solvex.solvex.data.service.ExtractoAIService
+import com.solvex.solvex.data.service.PdfPasswordRequiredException
 import com.solvex.solvex.session.SessionManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
+import retrofit2.HttpException
 
 // Datos de una carga reciente guardada en Firestore
 data class CargaReciente(
@@ -30,9 +34,10 @@ data class CargaReciente(
 class ExtractoViewModel(application: Application) : AndroidViewModel(application) {
 
     private val sessionManager = SessionManager(application)
-    private val firestoreRepository = FirestoreMovimientoRepository()
+    private val movimientoRepository = MovimientoRepository(application)
+    private val cuentaRepository = CuentaRepository(application)
+    private val extractoRepository = ExtractoRepository(application)
     private val aiService = ExtractoAIService()
-    private val db = FirebaseFirestore.getInstance()
 
     private val _userEmail = MutableStateFlow(sessionManager.obtenerEmail())
 
@@ -48,6 +53,18 @@ class ExtractoViewModel(application: Application) : AndroidViewModel(application
 
     private val _guardadoExitoso = MutableStateFlow(false)
     val guardadoExitoso: StateFlow<Boolean> = _guardadoExitoso.asStateFlow()
+
+    private val _guardandoMovimientos = MutableStateFlow(false)
+    val guardandoMovimientos: StateFlow<Boolean> = _guardandoMovimientos.asStateFlow()
+
+    private val _pdfSolicitaContrasena = MutableStateFlow(false)
+    val pdfSolicitaContrasena: StateFlow<Boolean> = _pdfSolicitaContrasena.asStateFlow()
+
+    private val _avisoCarga = MutableStateFlow("")
+    val avisoCarga: StateFlow<String> = _avisoCarga.asStateFlow()
+
+    private val _errorGuardado = MutableStateFlow("")
+    val errorGuardado: StateFlow<String> = _errorGuardado.asStateFlow()
 
     // Cargas recientes desde Firestore
     private val _cargasRecientes = MutableStateFlow<List<CargaReciente>>(emptyList())
@@ -65,6 +82,7 @@ class ExtractoViewModel(application: Application) : AndroidViewModel(application
         if (email.isNotBlank()) {
             sessionManager.guardarSesion(sessionManager.obtenerNombre(), email)
             _userEmail.value = sessionManager.obtenerEmail()
+            movimientoRepository.actualizarAhora()
             cargarHistorial()
         }
     }
@@ -104,24 +122,20 @@ class ExtractoViewModel(application: Application) : AndroidViewModel(application
 
         viewModelScope.launch {
             try {
-                val snapshot = db.collection("extractos")
-                    .whereEqualTo("userEmail", email)
-                    .get()
-                    .await()
-
-                val lista = snapshot.documents.mapNotNull { doc ->
+                val lista = extractoRepository.listar().map { extracto ->
                     CargaReciente(
-                        nombreArchivo = doc.getString("nombreArchivo") ?: "",
-                        banco = doc.getString("banco") ?: "",
-                        fechaProcesado = doc.getLong("fechaProcesado") ?: 0L,
-                        totalMovimientos = doc.getLong("totalMovimientos")?.toInt() ?: 0,
-                        estado = doc.getString("estado") ?: "Procesado"
+                        nombreArchivo = extracto.nombreArchivo,
+                        banco = extracto.banco,
+                        fechaProcesado = extracto.fechaProcesado,
+                        totalMovimientos = extracto.totalMovimientos,
+                        estado = extracto.estado
                     )
                 }
 
                 _cargasRecientes.value = lista.sortedByDescending { it.fechaProcesado }.take(5)
             } catch (_: Exception) {
                 _cargasRecientes.value = emptyList()
+                _avisoCarga.value = "No se pudo consultar el historial de extractos. Revisa tu sesión y la conexión."
             }
         }
     }
@@ -131,19 +145,8 @@ class ExtractoViewModel(application: Application) : AndroidViewModel(application
         val email = sessionManager.obtenerEmail()
         if (email.isBlank()) return
 
-        try {
-            val docRef = db.collection("extractos").document()
-            val datos = hashMapOf(
-                "userEmail" to email,
-                "nombreArchivo" to nombre,
-                "banco" to banco,
-                "fechaProcesado" to System.currentTimeMillis(),
-                "totalMovimientos" to totalMov,
-                "estado" to "Procesado"
-            )
-            docRef.set(datos).await()
-            cargarHistorial()
-        } catch (_: Exception) {}
+        extractoRepository.registrar(ExtractoRequest(nombre, banco, totalMov))
+        cargarHistorial()
     }
 
     // Procesa el extracto PDF o archivo seleccionado
@@ -153,6 +156,9 @@ class ExtractoViewModel(application: Application) : AndroidViewModel(application
         _nombreArchivo.value = nombreLimpio
         _cargando.value = true
         _guardadoExitoso.value = false
+        _pdfSolicitaContrasena.value = false
+        _avisoCarga.value = ""
+        _errorGuardado.value = ""
 
         viewModelScope.launch {
             try {
@@ -169,36 +175,38 @@ class ExtractoViewModel(application: Application) : AndroidViewModel(application
                 _cargando.value = false
 
                 if (resultado.movimientosExtraidos.isNotEmpty()) {
-                    val movimientosConEmail = resultado.movimientosExtraidos.map {
-                        it.copy(usuarioEmail = emailActual)
-                    }
-
-                    // 1. Guardar de inmediato en la memoria/repositorio (< 1ms)
-                    firestoreRepository.insertarLista(movimientosConEmail)
-                    _guardadoExitoso.value = true
-
-                    // 2. Guardar en segundo plano la cuenta y el historial en Firestore
+                    // El análisis solo prepara una vista previa. Los movimientos se guardan
+                    // únicamente cuando el usuario confirma con el botón.
                     viewModelScope.launch {
+                        val errores = mutableListOf<String>()
                         try {
-                            db.collection("cuentas").document(emailActual).set(
-                                hashMapOf(
-                                    "userEmail" to emailActual,
-                                    "saldoInicial" to resultado.saldoInicial,
-                                    "saldoFinal" to resultado.saldoFinal,
-                                    "totalIngresos" to resultado.totalIngresosCalculado,
-                                    "totalGastos" to resultado.totalGastosCalculado,
-                                    "banco" to resultado.nombreBanco
-                                )
-                            ).await()
+                            cuentaRepository.guardar(CuentaResponse(
+                                userEmail = emailActual,
+                                saldoInicial = resultado.saldoInicial,
+                                saldoFinal = resultado.saldoFinal,
+                                totalIngresos = resultado.totalIngresosCalculado,
+                                totalGastos = resultado.totalGastosCalculado,
+                                banco = resultado.nombreBanco
+                            ))
                             sessionManager.guardarSaldoInicial(resultado.saldoInicial)
-                        } catch (_: Exception) {}
+                        } catch (exception: Exception) {
+                            errores += "No se pudo guardar el saldo de la cuenta: ${mensajeErrorServidor(exception)}"
+                        }
 
                         try {
-                            guardarRegistroCarga(nombreLimpio, resultado.nombreBanco, movimientosConEmail.size)
-                        } catch (_: Exception) {}
+                            guardarRegistroCarga(nombreLimpio, resultado.nombreBanco, resultado.movimientosExtraidos.size)
+                        } catch (exception: Exception) {
+                            errores += "No se pudo guardar el extracto en el historial: ${mensajeErrorServidor(exception)}"
+                        }
+                        _avisoCarga.value = errores.joinToString("\n")
                     }
                 }
             } catch (e: Exception) {
+                if (e is PdfPasswordRequiredException) {
+                    _pdfSolicitaContrasena.value = true
+                    _extractoResultado.value = null
+                    return@launch
+                }
                 _extractoResultado.value = ExtractoAnalizado(
                     resumenIA = "Error al procesar el extracto: ${e.localizedMessage ?: "Formato no reconocido"}"
                 )
@@ -214,6 +222,8 @@ class ExtractoViewModel(application: Application) : AndroidViewModel(application
         val emailActual = sessionManager.obtenerEmail()
         _cargando.value = true
         _guardadoExitoso.value = false
+        _avisoCarga.value = ""
+        _errorGuardado.value = ""
 
         viewModelScope.launch {
             try {
@@ -232,23 +242,21 @@ class ExtractoViewModel(application: Application) : AndroidViewModel(application
                         it.copy(usuarioEmail = emailActual)
                     }
 
-                    firestoreRepository.insertarLista(movimientosConEmail)
-                    _guardadoExitoso.value = true
-
                     viewModelScope.launch {
+                        val errores = mutableListOf<String>()
                         try {
-                            db.collection("cuentas").document(emailActual).set(
-                                hashMapOf(
-                                    "userEmail" to emailActual,
-                                    "saldoInicial" to resultado.saldoInicial,
-                                    "saldoFinal" to resultado.saldoFinal,
-                                    "totalIngresos" to resultado.totalIngresosCalculado,
-                                    "totalGastos" to resultado.totalGastosCalculado,
-                                    "banco" to resultado.nombreBanco
-                                )
-                            ).await()
+                            cuentaRepository.guardar(CuentaResponse(
+                                userEmail = emailActual,
+                                saldoInicial = resultado.saldoInicial,
+                                saldoFinal = resultado.saldoFinal,
+                                totalIngresos = resultado.totalIngresosCalculado,
+                                totalGastos = resultado.totalGastosCalculado,
+                                banco = resultado.nombreBanco
+                            ))
                             sessionManager.guardarSaldoInicial(resultado.saldoInicial)
-                        } catch (_: Exception) {}
+                        } catch (exception: Exception) {
+                            errores += "No se pudo guardar el saldo de la cuenta: ${mensajeErrorServidor(exception)}"
+                        }
 
                         try {
                             guardarRegistroCarga(
@@ -256,7 +264,10 @@ class ExtractoViewModel(application: Application) : AndroidViewModel(application
                                 resultado.nombreBanco,
                                 movimientosConEmail.size
                             )
-                        } catch (_: Exception) {}
+                        } catch (exception: Exception) {
+                            errores += "No se pudo guardar el extracto en el historial: ${mensajeErrorServidor(exception)}"
+                        }
+                        _avisoCarga.value = errores.joinToString("\n")
                     }
                 }
             } catch (e: Exception) {
@@ -271,18 +282,27 @@ class ExtractoViewModel(application: Application) : AndroidViewModel(application
 
     // Guardado explícito al hacer clic en el botón con redirección
     fun guardarMovimientosEnNube(onCompletado: () -> Unit) {
+        if (_guardandoMovimientos.value || _guardadoExitoso.value) return
         val emailActual = sessionManager.obtenerEmail()
         val resultado = _extractoResultado.value
 
         if (resultado != null && resultado.movimientosExtraidos.isNotEmpty()) {
+            _guardandoMovimientos.value = true
+            _errorGuardado.value = ""
             val movimientosConEmail = resultado.movimientosExtraidos.map {
                 it.copy(usuarioEmail = emailActual)
             }
 
             viewModelScope.launch {
-                firestoreRepository.insertarLista(movimientosConEmail)
-                _guardadoExitoso.value = true
-                onCompletado()
+                try {
+                    movimientoRepository.insertarLista(movimientosConEmail)
+                    _guardadoExitoso.value = true
+                    onCompletado()
+                } catch (exception: Exception) {
+                    _errorGuardado.value = mensajeErrorServidor(exception)
+                } finally {
+                    _guardandoMovimientos.value = false
+                }
             }
         } else {
             onCompletado()
@@ -293,6 +313,25 @@ class ExtractoViewModel(application: Application) : AndroidViewModel(application
         _extractoResultado.value = null
         _nombreArchivo.value = ""
         _guardadoExitoso.value = false
+        _guardandoMovimientos.value = false
         _bancoDetectado.value = ""
+        _pdfSolicitaContrasena.value = false
+        _avisoCarga.value = ""
+        _errorGuardado.value = ""
+    }
+
+    private fun mensajeErrorServidor(exception: Exception): String {
+        if (exception is HttpException) {
+            return when (exception.code()) {
+                401 -> "Tu sesión venció. Cierra sesión e inicia sesión otra vez."
+                403 -> "El servidor rechazó el acceso. Inicia sesión nuevamente."
+                in 500..599 -> "El servidor no pudo guardar los datos (HTTP ${exception.code()})."
+                else -> exception.response()?.errorBody()?.string()?.takeIf { it.isNotBlank() }
+                    ?: "El servidor rechazó la solicitud (HTTP ${exception.code()})."
+            }
+        }
+        return if (exception is java.io.IOException) {
+            "No se pudo conectar con el servidor. Verifica que siga activo en el puerto 8080."
+        } else exception.localizedMessage ?: "Ocurrió un error inesperado."
     }
 }

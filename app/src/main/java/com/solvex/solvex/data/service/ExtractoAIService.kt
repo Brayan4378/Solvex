@@ -6,11 +6,13 @@ import com.solvex.solvex.data.entity.ExtractoAnalizado
 import com.solvex.solvex.data.entity.MovimientoEntity
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.pdmodel.encryption.InvalidPasswordException
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import java.text.Normalizer
 import java.util.Calendar
 import java.util.Locale
 import kotlin.math.abs
@@ -49,8 +51,7 @@ class ExtractoAIService {
 
         if (textoExtraido.isBlank()) {
             return@withContext ExtractoAnalizado(
-                resumenIA = "No se pudo extraer texto del archivo '$nombreArchivo'.\n\n" +
-                        "Si el PDF requiere contraseña, ingresa tu cédula o clave e intenta de nuevo."
+                resumenIA = "No se pudo extraer texto del archivo '$nombreArchivo'. Verifica que sea un PDF válido y legible."
             )
         }
 
@@ -68,10 +69,16 @@ class ExtractoAIService {
             var documento: PDDocument? = null
             try {
                 documento = if (contrasena.isNotBlank()) {
-                    PDDocument.load(bytes, contrasena)
+                    try {
+                        PDDocument.load(bytes, contrasena)
+                    } catch (error: InvalidPasswordException) {
+                        throw PdfPasswordRequiredException()
+                    }
                 } else {
                     try {
                         PDDocument.load(bytes)
+                    } catch (error: InvalidPasswordException) {
+                        throw PdfPasswordRequiredException()
                     } catch (_: Exception) {
                         try {
                             PDDocument.load(bytes, "")
@@ -87,6 +94,8 @@ class ExtractoAIService {
             } finally {
                 try { documento?.close() } catch (_: Exception) {}
             }
+        } catch (error: PdfPasswordRequiredException) {
+            throw error
         } catch (_: Exception) {
             return ""
         }
@@ -103,26 +112,30 @@ class ExtractoAIService {
         val bancoDetectado = if (banco.isNotBlank()) banco else detectarBanco(texto)
 
         // Extraer valores de cabecera del banco
-        var saldoAnterior = extraerMontoCabecera(
+        val saldoAnteriorExtraido = extraerMontoCabecera(
             lineas,
-            listOf("saldo anterior", "saldo ant", "saldo inicial", "saldo de apertura")
+            listOf("saldo anterior", "saldo ant", "saldo inicial", "saldo de apertura"),
+            emptyList()
         )
         val masCreditos = extraerMontoCabecera(
             lineas,
-            listOf("más créditos", "mas creditos", "total créditos", "total creditos", "créditos", "creditos")
+            listOf("más créditos", "mas creditos", "total créditos", "total creditos", "créditos", "creditos"),
+            listOf(Regex("^\\s*m.?s\\s+cr.?ditos"), Regex("^\\s*(?:total\\s+)?cr.?ditos"))
         )
         val menosDebitos = extraerMontoCabecera(
             lineas,
-            listOf("menos débitos", "menos debitos", "total débitos", "total debitos", "débitos", "debitos")
+            listOf("menos débitos", "menos debitos", "total débitos", "total debitos", "débitos", "debitos"),
+            listOf(Regex("^\\s*menos\\s+d.?bitos"), Regex("^\\s*(?:total\\s+)?d.?bitos"))
         )
-        var nuevoSaldo = extraerMontoCabecera(
+        val nuevoSaldoExtraido = extraerMontoCabecera(
             lineas,
-            listOf("nuevo saldo", "saldo final", "saldo a la fecha", "saldo disponible")
+            listOf("nuevo saldo", "saldo final", "saldo a la fecha", "saldo disponible"),
+            emptyList()
         )
         val saldoBolsillo = extraerMontoCabecera(
             lineas,
             listOf("saldo total bolsillo", "total bolsillo", "bolsillos", "ahorro bolsillo")
-        )
+        ) ?: 0.0
 
         val movimientos = mutableListOf<MovimientoEntity>()
 
@@ -142,7 +155,9 @@ class ExtractoAIService {
             if (lineaUpper.startsWith("FECHA") || lineaUpper.startsWith("BANCO") ||
                 lineaUpper.startsWith("APRECIADO") || lineaUpper.startsWith("NIT") ||
                 lineaUpper.contains("SALDO ANTERIOR") || lineaUpper.contains("NUEVO SALDO") ||
-                lineaUpper.contains("MÁS CRÉDITOS") || lineaUpper.contains("MENOS DÉBITOS")) {
+                lineaUpper.contains("MÁS CRÉDITOS") || lineaUpper.contains("MENOS DÉBITOS") ||
+                Regex("^\\s*m.?s\\s+cr.?ditos", RegexOption.IGNORE_CASE).containsMatchIn(linea) ||
+                Regex("^\\s*menos\\s+d.?bitos", RegexOption.IGNORE_CASE).containsMatchIn(linea)) {
                 continue
             }
 
@@ -155,7 +170,7 @@ class ExtractoAIService {
                 val desc = mDav.groupValues[6].trim()
 
                 val monto = parsearMonto(montoRaw)
-                if (monto > 0.01) {
+                if (monto > 0.01 && !esTrasladoInternoDeRendimientos(desc)) {
                     val tipo = if (signo == "-") "gasto" else "ingreso"
                     movimientos.add(
                         MovimientoEntity(
@@ -181,7 +196,7 @@ class ExtractoAIService {
                 val desc = mCol.groupValues[6].trim()
 
                 val monto = parsearMonto(montoRaw)
-                if (monto > 0.01) {
+                if (monto > 0.01 && !esTrasladoInternoDeRendimientos(desc)) {
                     val tipo = if (signo == "-") "gasto" else "ingreso"
                     movimientos.add(
                         MovimientoEntity(
@@ -207,7 +222,7 @@ class ExtractoAIService {
                 val signoRaw = mIni.groupValues[6]
 
                 val monto = parsearMonto(montoRaw)
-                if (monto > 0.01) {
+                if (monto > 0.01 && !esTrasladoInternoDeRendimientos(desc)) {
                     val tipo = if (signoRaw == "-" || signoRaw.equals("DB", ignoreCase = true)) "gasto" else "ingreso"
                     movimientos.add(
                         MovimientoEntity(
@@ -234,7 +249,7 @@ class ExtractoAIService {
                 val signoRaw = mTxt.groupValues[6]
 
                 val monto = parsearMonto(montoRaw)
-                if (monto > 0.01) {
+                if (monto > 0.01 && !esTrasladoInternoDeRendimientos(desc)) {
                     val tipo = if (signoRaw == "-" || signoRaw.equals("DB", ignoreCase = true)) "gasto" else "ingreso"
                     movimientos.add(
                         MovimientoEntity(
@@ -258,7 +273,7 @@ class ExtractoAIService {
                 val desc = mLib.groupValues[3].trim()
 
                 val monto = parsearMonto(montoRaw)
-                if (monto > 0.01) {
+                if (monto > 0.01 && !esTrasladoInternoDeRendimientos(desc)) {
                     val tipo = if (signo == "-") "gasto" else "ingreso"
                     movimientos.add(
                         MovimientoEntity(
@@ -285,16 +300,14 @@ class ExtractoAIService {
         val totalIngresosInternos = movimientos.filter { it.tipo == "ingreso" }.sumOf { it.monto }
         val totalGastosInternos = movimientos.filter { it.tipo == "gasto" }.sumOf { it.monto }
 
-        val ingresosOficiales = if (masCreditos > 0) masCreditos else totalIngresosInternos
-        val gastosOficiales = if (menosDebitos > 0) menosDebitos else totalGastosInternos
+        val ingresosOficiales = masCreditos ?: totalIngresosInternos
+        val gastosOficiales = menosDebitos ?: totalGastosInternos
 
-        if (saldoAnterior == 0.0 && nuevoSaldo == 0.0) {
-            saldoAnterior = ingresosOficiales
-            nuevoSaldo = ingresosOficiales - gastosOficiales
-        }
-        if (nuevoSaldo == 0.0) {
-            nuevoSaldo = saldoAnterior + ingresosOficiales - gastosOficiales
-        }
+        val saldoAnterior = saldoAnteriorExtraido
+            ?: nuevoSaldoExtraido?.minus(ingresosOficiales)?.plus(gastosOficiales)
+            ?: 0.0
+        val nuevoSaldo = nuevoSaldoExtraido
+            ?: (saldoAnterior + ingresosOficiales - gastosOficiales)
 
         val saldoCalculado = saldoAnterior + ingresosOficiales - gastosOficiales
         val saldoCuadra = abs(saldoCalculado - nuevoSaldo) < 2.0
@@ -324,7 +337,7 @@ class ExtractoAIService {
 
     // ── 3. Categorización Inteligente por Reglas Semánticas (IA) ────────────
     fun categorizarConIA(descripcion: String): String {
-        val d = descripcion.lowercase(Locale.ROOT)
+        val d = normalizarTexto(descripcion)
 
         return when {
             // Entretenimiento y Suscripciones
@@ -342,19 +355,19 @@ class ExtractoAIService {
                     d.contains("kfc") || d.contains("frisby") || d.contains("el corral") ||
                     d.contains("kokoriko") -> "Comida y Restaurantes"
 
+            // Compras y Comercio: separar billeteras y comercios de supermercado genérico.
+            d.contains("amazon") || d.contains("mercadoli") || d.contains("mercadopago") ||
+                    d.contains("mercado pago") || d.contains("mercado libre") || d.contains("mercadolibre") ||
+                    d.contains("falabella") || d.contains("zara") || d.contains("centro comercial") ||
+                    d.contains("pago a llave de comercio") || d.contains("linio") || d.contains("shein") ||
+                    d.contains("unice") -> "Compras y Comercio"
+
             // Supermercados y Mercado
-            d.contains("éxito") || d.contains("exito") || d.contains("jumbo") ||
+            d.contains("exito") || d.contains("jumbo") ||
                     d.contains("carulla") || d.contains("supertienda") || d.contains("olimpica") ||
-                    d.contains("olímpica") || d.contains("tienda d1") || d.contains("ara ") ||
+                    d.contains("tienda d1") || d.contains("ara ") ||
                     d.contains("justo & bueno") || d.contains("supermercado") || d.contains("oxxo") ||
                     d.contains("jeronimo martins") || d.contains("mercado") -> "Supermercados y Mercado"
-
-            // Compras y Comercio
-            d.contains("amazon") || d.contains("mercadoli") || d.contains("mercadopago") ||
-                    d.contains("mercado libre") || d.contains("falabella") || d.contains("zara") ||
-                    d.contains("centro comercial") || d.contains("compra a comercio") ||
-                    d.contains("compra en") || d.contains("compra ") || d.contains("linio") ||
-                    d.contains("shein") || d.contains("unice") -> "Compras y Comercio"
 
             // Transporte y Gasolina
             d.contains("terpel") || d.contains("eds ") || d.contains("texaco") ||
@@ -363,6 +376,10 @@ class ExtractoAIService {
                     d.contains("cabify") || d.contains("indrive") || d.contains("transporte") ||
                     d.contains("peaje") || d.contains("tullave") || d.contains("transmilenio") ||
                     d.contains("parqueadero") -> "Transporte y Gasolina"
+
+            // Los textos genéricos de compra se evalúan después de comercios específicos.
+            d.contains("compra a comercio") || d.contains("compra en") || d.contains("compra ") ->
+                "Compras y Comercio"
 
             // Pago de Tarjetas y Créditos
             d.contains("pago tarj") || d.contains("pago tarjeta") || d.contains("tarjeta de crédito") ||
@@ -373,8 +390,7 @@ class ExtractoAIService {
                     d.contains("energía") || d.contains("energia") || d.contains("agua") ||
                     d.contains("arriendo") || d.contains("gas natural") || d.contains("codensa") ||
                     d.contains("movistar") || d.contains("tigo") || d.contains("etb") ||
-                    d.contains("pago de servicio") || d.contains("pago servicio") ||
-                    d.contains("pago a llave") -> "Facturas y Servicios"
+                    d.contains("pago de servicio") || d.contains("pago servicio") -> "Facturas y Servicios"
 
             // Salud y Droguerías
             d.contains("drogas") || d.contains("farmacia") || d.contains("salud") ||
@@ -394,7 +410,7 @@ class ExtractoAIService {
             // Transferencias y Envíos
             d.contains("transferencia") || d.contains("daviplata") || d.contains("nequi") ||
                     d.contains("transfiya") || d.contains("redeban") || d.contains("breb") ||
-                    d.contains("otra entidad") -> "Transferencias y Envíos"
+                    d.contains("otra entidad") || d.contains("pago a llave") -> "Transferencias y Envíos"
 
             // Comisiones e Impuestos
             d.contains("gmf") || d.contains("4x1000") || d.contains("comisión") ||
@@ -448,11 +464,15 @@ class ExtractoAIService {
         }
     }
 
-    private fun extraerMontoCabecera(lineas: List<String>, claves: List<String>): Double {
+    private fun extraerMontoCabecera(
+        lineas: List<String>,
+        claves: List<String>,
+        patrones: List<Regex> = emptyList()
+    ): Double? {
         val regexConPesos = Regex("""\$\s*([\d.,]+)""")
         for (linea in lineas) {
             val l = linea.lowercase(Locale.ROOT)
-            if (claves.any { l.contains(it) }) {
+            if (claves.any { l.contains(it) } || patrones.any { it.containsMatchIn(l) }) {
                 val m = regexConPesos.find(linea)
                 if (m != null) return parsearMonto(m.groupValues[1])
             }
@@ -460,12 +480,22 @@ class ExtractoAIService {
         val regexSinPesos = Regex("""([\d,]+\.\d{2})""")
         for (linea in lineas) {
             val l = linea.lowercase(Locale.ROOT)
-            if (claves.any { l.contains(it) }) {
+            if (claves.any { l.contains(it) } || patrones.any { it.containsMatchIn(l) }) {
                 val m = regexSinPesos.find(linea)
                 if (m != null) return parsearMonto(m.groupValues[1])
             }
         }
-        return 0.0
+        return null
+    }
+
+    private fun normalizarTexto(texto: String): String = Normalizer
+        .normalize(texto.lowercase(Locale.ROOT), Normalizer.Form.NFD)
+        .replace(Regex("\\p{Mn}+"), "")
+
+    private fun esTrasladoInternoDeRendimientos(descripcion: String): Boolean {
+        val d = normalizarTexto(descripcion)
+        return d.contains("traslado rendimientos a bolsillo") ||
+                d.contains("abono rendimientos netos desde cuenta")
     }
 
     private fun convertirMesAInt(mesStr: String): Int? {
@@ -579,3 +609,5 @@ class ExtractoAIService {
 
     private fun cop(monto: Double): String = "$" + String.format(Locale.US, "%,.0f", monto).replace(",", ".")
 }
+
+class PdfPasswordRequiredException : Exception("El PDF requiere contraseña")

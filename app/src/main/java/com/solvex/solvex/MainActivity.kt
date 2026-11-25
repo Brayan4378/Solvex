@@ -13,6 +13,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.solvex.solvex.ui.screens.LoginScreen
+import com.solvex.solvex.data.demo.DemoDataStore
 import com.solvex.solvex.ui.screens.MainScreen
 import com.solvex.solvex.ui.screens.SignUpScreen
 import com.solvex.solvex.ui.screens.SplashScreen
@@ -69,6 +70,8 @@ class MainActivity : ComponentActivity() {
                                     onLoginClick = { email, pass ->
                                         authViewModel.login(email, pass)
                                     },
+                                    demoModeAvailable = authViewModel.demoModeAvailable,
+                                    onDemoModeClick = { authViewModel.loginDemo() },
                                     onGoogleLoginClick = {
                                         scope.launch {
                                             val result = authViewModel.googleAuthManager.signIn()
@@ -108,6 +111,7 @@ class MainActivity : ComponentActivity() {
                                     modifier = Modifier.padding(innerPadding),
                                     userName = userName,
                                     userEmail = userEmail,
+                                    demoMode = authViewModel.demoModeAvailable && DemoDataStore.isDemo(userEmail),
                                     dashboardViewModel = dashboardViewModel,
                                     movimientosViewModel = movimientosViewModel,
                                     extractoViewModel = extractoViewModel,

@@ -1,8 +1,22 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
-    id("com.google.gms.google-services")
 }
+
+val solvexLocalProperties = Properties().apply {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.isFile) {
+        localPropertiesFile.inputStream().use { load(it) }
+    }
+}
+val solvexDebugApiBaseUrl = providers.gradleProperty("SOLVEX_API_BASE_URL")
+    .orElse(providers.environmentVariable("SOLVEX_API_BASE_URL"))
+    .orElse(solvexLocalProperties.getProperty("SOLVEX_API_BASE_URL") ?: "http://10.0.2.2:8080/")
+val solvexReleaseApiBaseUrl = providers.gradleProperty("SOLVEX_API_BASE_URL")
+    .orElse(providers.environmentVariable("SOLVEX_API_BASE_URL"))
+    .orElse("https://backend.example.com/")
 
 android {
     namespace = "com.solvex.solvex"
@@ -21,7 +35,13 @@ android {
     }
 
     buildTypes {
+        debug {
+            buildConfigField("String", "API_BASE_URL", "\"${solvexDebugApiBaseUrl.get()}\"")
+            buildConfigField("boolean", "DEMO_MODE", "true")
+        }
         release {
+            buildConfigField("String", "API_BASE_URL", "\"${solvexReleaseApiBaseUrl.get()}\"")
+            buildConfigField("boolean", "DEMO_MODE", "false")
             optimization {
                 enable = false
             }
@@ -33,12 +53,12 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
 dependencies {
-    implementation(platform(libs.firebase.bom))
-    implementation(libs.firebase.firestore)
+    implementation("androidx.work:work-runtime-ktx:2.12.0")
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.material3)
@@ -54,6 +74,8 @@ dependencies {
     implementation("androidx.credentials:credentials:1.5.0")
     implementation("androidx.credentials:credentials-play-services-auth:1.5.0")
     implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
+    implementation("com.squareup.retrofit2:retrofit:2.11.0")
+    implementation("com.squareup.retrofit2:converter-gson:2.11.0")
 
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))

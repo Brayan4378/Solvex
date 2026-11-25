@@ -57,7 +57,9 @@ fun LoginScreen(
     onLoginClick: (email: String, pass: String) -> Unit = { _, _ -> },
     onGoogleLoginClick: () -> Unit = {},
     onForgotPasswordClick: () -> Unit = {},
-    onNavigateToRegister: () -> Unit = {}
+    onNavigateToRegister: () -> Unit = {},
+    demoModeAvailable: Boolean = false,
+    onDemoModeClick: () -> Unit = {}
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -267,6 +269,25 @@ fun LoginScreen(
                 text = "Iniciar sesión",
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold
+            )
+        }
+
+        if (demoModeAvailable) {
+            Spacer(modifier = Modifier.height(10.dp))
+            OutlinedButton(
+                onClick = onDemoModeClick,
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White, contentColor = NavyPrimary)
+            ) {
+                Text("Entrar en modo demo local", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            }
+            Text(
+                "Usa datos de muestra guardados solo en memoria; no requiere conexión.",
+                modifier = Modifier.padding(top = 6.dp),
+                color = TextMuted,
+                fontSize = 11.sp,
+                textAlign = TextAlign.Center
             )
         }
 

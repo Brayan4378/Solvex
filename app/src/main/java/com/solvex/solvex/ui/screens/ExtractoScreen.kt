@@ -95,11 +95,14 @@ fun ExtractoScreen(
     val cargasRecientes by viewModel.cargasRecientes.collectAsState()
     val bancoDetectado by viewModel.bancoDetectado.collectAsState()
     val guardadoExitoso by viewModel.guardadoExitoso.collectAsState()
+    val guardandoMovimientos by viewModel.guardandoMovimientos.collectAsState()
+    val pdfSolicitaContrasena by viewModel.pdfSolicitaContrasena.collectAsState()
+    val avisoCarga by viewModel.avisoCarga.collectAsState()
+    val errorGuardado by viewModel.errorGuardado.collectAsState()
 
     var mostrarPegarTexto by remember { mutableStateOf(false) }
     var textoPegado by remember { mutableStateOf("") }
     var contrasenaPDF by remember { mutableStateOf("") }
-    var mostrarContrasena by remember { mutableStateOf(false) }
     var uriPendiente by remember { mutableStateOf<Uri?>(null) }
     var nombrePendiente by remember { mutableStateOf("") }
 
@@ -199,21 +202,9 @@ fun ExtractoScreen(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    OutlinedButton(
-                        onClick = { mostrarContrasena = !mostrarContrasena },
-                        modifier = Modifier.fillMaxWidth().height(40.dp),
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, BorderColor)
-                    ) {
-                        Text(
-                            text = if (mostrarContrasena) "Ocultar contraseña" else "PDF protegido con contraseña",
-                            fontSize = 12.sp
-                        )
-                    }
-
-                    if (mostrarContrasena) {
+                    if (pdfSolicitaContrasena) {
                         Spacer(modifier = Modifier.height(8.dp))
+                        Text("Este PDF está protegido. Ingresa la contraseña para continuar.", fontSize = 12.sp, color = TextSecondary)
                         OutlinedTextField(
                             value = contrasenaPDF,
                             onValueChange = { contrasenaPDF = it },
@@ -224,6 +215,16 @@ fun ExtractoScreen(
                             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = GreenPrimary, unfocusedBorderColor = BorderColor),
                             singleLine = true
                         )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = { viewModel.procesarExtracto(uriPendiente, nombrePendiente, contrasenaPDF) },
+                            enabled = !cargando && contrasenaPDF.isNotBlank() && uriPendiente != null,
+                            modifier = Modifier.fillMaxWidth().height(44.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = NavyPrimary)
+                        ) {
+                            Text("Continuar con contraseña", fontWeight = FontWeight.SemiBold, color = Color.White)
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -299,6 +300,25 @@ fun ExtractoScreen(
                             Text("Analizar texto pegado", fontWeight = FontWeight.Bold, color = Color.White)
                         }
                     }
+                }
+            }
+        }
+
+        if (avisoCarga.isNotBlank() && resultado?.movimientosExtraidos?.isNotEmpty() != true) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E1)),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, OrangeAlert)
+                ) {
+                    Text(
+                        avisoCarga,
+                        modifier = Modifier.padding(14.dp),
+                        fontSize = 12.sp,
+                        color = TextDark,
+                        lineHeight = 17.sp
+                    )
                 }
             }
         }
@@ -403,14 +423,27 @@ fun ExtractoScreen(
 
                             Button(
                                 onClick = { viewModel.guardarMovimientosEnNube { onMovimientosGuardados() } },
+                                enabled = !guardadoExitoso && !guardandoMovimientos,
                                 modifier = Modifier.fillMaxWidth().height(46.dp),
                                 shape = RoundedCornerShape(10.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = GreenPrimary)
                             ) {
                                 Text(
-                                    text = if (guardadoExitoso) "✓ ${analizado.movimientosExtraidos.size} movimientos guardados — Ver Movimientos" else "Guardar ${analizado.movimientosExtraidos.size} movimientos en Movimientos",
+                                    text = when {
+                                        guardadoExitoso -> "✓ ${analizado.movimientosExtraidos.size} movimientos guardados — Ver Movimientos"
+                                        guardandoMovimientos -> "Guardando movimientos…"
+                                        else -> "Guardar ${analizado.movimientosExtraidos.size} movimientos en Movimientos"
+                                    },
                                     fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp
                                 )
+                            }
+                            if (errorGuardado.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(errorGuardado, fontSize = 12.sp, color = Color(0xFFFFB4AB), lineHeight = 16.sp)
+                            }
+                            if (avisoCarga.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(avisoCarga, fontSize = 12.sp, color = Color.White.copy(alpha = 0.8f), lineHeight = 16.sp)
                             }
                         }
                     }
